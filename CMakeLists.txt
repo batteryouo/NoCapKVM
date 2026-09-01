@@ -12,8 +12,8 @@ else()
 endif()
 
 add_subdirectory(src/common)
-add_subdirectory(src/master)
-add_subdirectory(src/slave)
+add_subdirectory(src/discovery)
+add_subdirectory(src/app)
 
 enable_testing()
 add_subdirectory(tests)
