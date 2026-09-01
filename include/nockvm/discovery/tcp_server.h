@@ -3,13 +3,19 @@
 #include <mutex>
 #include <thread>
 #include "nockvm/discovery/connection_types.h"
+#include "nockvm/discovery/known_peers.h"
+#include "nockvm/discovery/noise_primitives.h"
 #include "nockvm/discovery/platform_socket.h"
 
 namespace nockvm::discovery {
 
-// Listens for a single incoming TCP client, exchanges device ids as a
-// minimal handshake (no encryption), then watches the connection until
-// the peer disconnects, at which point it goes back to accepting.
+enum class PairingDecision : uint8_t { Pending, Approved, Rejected };
+
+// Listens for a single incoming TCP client. On an unknown peer, runs TOFU
+// pairing (fingerprint + Master-side approve/reject) before proceeding; on
+// an already-trusted peer, skips straight to the Noise IK handshake. Then
+// watches the connection until the peer disconnects, at which point it
+// goes back to accepting.
 class TcpServer {
 public:
   explicit TcpServer(uint64_t own_device_id);
@@ -25,13 +31,20 @@ public:
   uint16_t port() const { return port_; }
   ConnectionInfo status() const;
 
+  // Called from the UI thread to resolve a pending pairing request.
+  void approve_pairing();
+  void reject_pairing();
+
 private:
   void run();
 
   uint64_t own_device_id_;
+  Keypair own_static_;
+  KnownPeers known_peers_;
   socket_t listen_socket_ = kInvalidSocket;
   uint16_t port_ = 0;
   std::atomic<bool> running_{false};
+  std::atomic<PairingDecision> pairing_decision_{PairingDecision::Pending};
   std::thread thread_;
   mutable std::mutex status_mutex_;
   ConnectionInfo status_;
