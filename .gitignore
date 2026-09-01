@@ -17,3 +17,15 @@ CLAUDE.md
 
 # editor setting
 .vscode/
+.vs/
+
+# C/C++ build artifacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+*.o
+*.obj
+*.pdb
+*.exe
+*.ilk
