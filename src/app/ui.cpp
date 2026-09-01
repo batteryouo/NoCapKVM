@@ -96,7 +96,12 @@ void draw_discovery(AppState& state) {
   if (state.role == discovery::Role::Master && state.tcp_server) {
     ImGui::Text("Listening on port %u", state.tcp_server->port());
     const discovery::ConnectionInfo info = state.tcp_server->status();
-    if (info.state == discovery::ConnectionState::Connected) {
+    if (info.state == discovery::ConnectionState::Pairing) {
+      ImGui::Text("Unknown device wants to pair. Fingerprint: %s", info.pairing_fingerprint.c_str());
+      if (ImGui::Button("Accept")) state.tcp_server->approve_pairing();
+      ImGui::SameLine();
+      if (ImGui::Button("Reject")) state.tcp_server->reject_pairing();
+    } else if (info.state == discovery::ConnectionState::Connected) {
       ImGui::Text("Connected: %s", resolve_peer_name(state, info.peer_device_id, info.peer_ip).c_str());
     } else {
       ImGui::TextUnformatted("Waiting for a Slave to connect...");
@@ -105,6 +110,9 @@ void draw_discovery(AppState& state) {
     const discovery::ConnectionInfo info = state.tcp_client->status();
     if (info.state == discovery::ConnectionState::Connecting) {
       ImGui::Text("Connecting to %s...", info.peer_ip.c_str());
+    } else if (info.state == discovery::ConnectionState::Pairing) {
+      ImGui::Text("Fingerprint: %s", info.pairing_fingerprint.c_str());
+      ImGui::TextUnformatted("Waiting for the Master to approve...");
     } else if (info.state == discovery::ConnectionState::Connected) {
       ImGui::Text("Connected: %s", resolve_peer_name(state, info.peer_device_id, info.peer_ip).c_str());
     } else {

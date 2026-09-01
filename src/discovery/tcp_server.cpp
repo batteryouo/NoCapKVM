@@ -1,6 +1,10 @@
 #include "nockvm/discovery/tcp_server.h"
 #include <chrono>
+#include <thread>
+#include "nockvm/discovery/noise_ik.h"
+#include "nockvm/discovery/pairing.h"
 #include "nockvm/discovery/protocol.h"
+#include "nockvm/discovery/static_keys.h"
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
@@ -14,7 +18,8 @@ namespace {
 constexpr auto kHandshakeTimeout = std::chrono::seconds(3);
 }  // namespace
 
-TcpServer::TcpServer(uint64_t own_device_id) : own_device_id_(own_device_id) {}
+TcpServer::TcpServer(uint64_t own_device_id)
+    : own_device_id_(own_device_id), own_static_(get_or_create_static_keypair()) {}
 
 TcpServer::~TcpServer() { stop(); }
 
@@ -57,6 +62,9 @@ ConnectionInfo TcpServer::status() const {
   return status_;
 }
 
+void TcpServer::approve_pairing() { pairing_decision_ = PairingDecision::Approved; }
+void TcpServer::reject_pairing() { pairing_decision_ = PairingDecision::Rejected; }
+
 void TcpServer::run() {
   while (running_.load()) {
     if (!wait_readable(listen_socket_, std::chrono::milliseconds(200))) continue;
@@ -77,17 +85,66 @@ void TcpServer::run() {
 
     const DeviceIdBytes own_bytes = encode_device_id(own_device_id_);
     DeviceIdBytes peer_bytes{};
-    const auto deadline = std::chrono::steady_clock::now() + kHandshakeTimeout;
-    const bool handshake_ok = send_all(client, own_bytes.data(), own_bytes.size()) &&
+    auto deadline = std::chrono::steady_clock::now() + kHandshakeTimeout;
+    const bool device_id_ok = send_all(client, own_bytes.data(), own_bytes.size()) &&
                                recv_all(client, peer_bytes.data(), peer_bytes.size(), deadline);
-    if (!handshake_ok) {
+    if (!device_id_ok) {
       close_socket(client);
+      continue;
+    }
+    const uint64_t peer_device_id = decode_device_id(peer_bytes);
+
+    std::optional<Key32> trusted_pubkey = known_peers_.get_pubkey(peer_device_id);
+    if (!trusted_pubkey) {
+      Key32 peer_raw_pubkey;
+      deadline = std::chrono::steady_clock::now() + kHandshakeTimeout;
+      const bool pubkey_ok = send_all(client, own_static_.public_key.data(), own_static_.public_key.size()) &&
+                              recv_all(client, peer_raw_pubkey.data(), peer_raw_pubkey.size(), deadline);
+      if (!pubkey_ok) {
+        close_socket(client);
+        continue;
+      }
+
+      const std::string fingerprint = compute_fingerprint(peer_raw_pubkey, own_static_.public_key);
+      {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        status_ = ConnectionInfo{ConnectionState::Pairing, peer_device_id, ip_buf, fingerprint};
+      }
+      pairing_decision_ = PairingDecision::Pending;
+
+      const auto approval_deadline = std::chrono::steady_clock::now() + kPairingApprovalTimeout;
+      PairingDecision decision = PairingDecision::Pending;
+      while (running_.load() && std::chrono::steady_clock::now() < approval_deadline) {
+        decision = pairing_decision_.load();
+        if (decision != PairingDecision::Pending) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+
+      const uint8_t decision_byte = decision == PairingDecision::Approved ? kPairingApproved : kPairingRejected;
+      send_all(client, &decision_byte, 1);
+      if (decision != PairingDecision::Approved) {
+        close_socket(client);
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        status_ = ConnectionInfo{};
+        continue;
+      }
+
+      known_peers_.remember(peer_device_id, peer_raw_pubkey);
+      trusted_pubkey = peer_raw_pubkey;
+    }
+
+    deadline = std::chrono::steady_clock::now() + kHandshakeTimeout;
+    const IkResult ik = run_ik_responder(client, own_static_, deadline);
+    if (!ik.ok || *trusted_pubkey != ik.peer_static) {
+      close_socket(client);
+      std::lock_guard<std::mutex> lock(status_mutex_);
+      status_ = ConnectionInfo{};
       continue;
     }
 
     {
       std::lock_guard<std::mutex> lock(status_mutex_);
-      status_ = ConnectionInfo{ConnectionState::Connected, decode_device_id(peer_bytes), ip_buf};
+      status_ = ConnectionInfo{ConnectionState::Connected, peer_device_id, ip_buf, ""};
     }
 
     while (running_.load()) {

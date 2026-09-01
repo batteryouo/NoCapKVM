@@ -1,9 +1,9 @@
 #include "nockvm/discovery/identity.h"
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <random>
 #include <sstream>
+#include "config_dir.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -13,18 +13,6 @@
 
 namespace nockvm::discovery {
 namespace {
-
-std::filesystem::path config_dir() {
-  if (const char* override_dir = std::getenv("NOCKVM_HOME")) return std::filesystem::path(override_dir);
-#ifdef _WIN32
-  if (const char* appdata = std::getenv("APPDATA")) return std::filesystem::path(appdata) / "NoCapKVM";
-  return std::filesystem::path(".") / "NoCapKVM";
-#else
-  if (const char* xdg = std::getenv("XDG_CONFIG_HOME")) return std::filesystem::path(xdg) / "nockvm";
-  if (const char* home = std::getenv("HOME")) return std::filesystem::path(home) / ".config" / "nockvm";
-  return std::filesystem::path(".") / ".nockvm";
-#endif
-}
 
 uint64_t generate_device_id() {
   std::random_device rd;
