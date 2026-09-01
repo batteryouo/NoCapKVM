@@ -68,4 +68,17 @@ bool decode_announce(const uint8_t* data, size_t len, DecodedAnnounce& out) {
   return true;
 }
 
+DeviceIdBytes encode_device_id(uint64_t device_id) {
+  DeviceIdBytes bytes{};
+  write_be32(bytes.data(), static_cast<uint32_t>(device_id >> 32));
+  write_be32(bytes.data() + 4, static_cast<uint32_t>(device_id));
+  return bytes;
+}
+
+uint64_t decode_device_id(const DeviceIdBytes& bytes) {
+  const uint64_t high = read_be32(bytes.data());
+  const uint64_t low = read_be32(bytes.data() + 4);
+  return (high << 32) | low;
+}
+
 }  // namespace nockvm::discovery

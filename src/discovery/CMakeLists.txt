@@ -8,6 +8,8 @@ add_library(nockvm_discovery STATIC
   peer_table.cpp
   announcer.cpp
   listener.cpp
+  tcp_server.cpp
+  tcp_client.cpp
 )
 target_include_directories(nockvm_discovery PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(nockvm_discovery PUBLIC nockvm_common Threads::Threads)
