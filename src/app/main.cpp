@@ -59,6 +59,8 @@ int main() {
 
   state.announcer.reset();
   state.listener.reset();
+  state.tcp_server.reset();
+  state.tcp_client.reset();
 
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplGlfw_Shutdown();

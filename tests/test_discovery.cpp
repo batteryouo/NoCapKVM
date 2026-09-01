@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cstdint>
 #include "nockvm/discovery/protocol.h"
 
 using namespace nockvm::discovery;
@@ -64,6 +65,13 @@ int main() {
     packet[14] = 0xFF;
     DecodedAnnounce decoded;
     assert(!decode_announce(packet.data(), packet.size(), decoded));
+  }
+
+  // Device id round-trip
+  {
+    assert(decode_device_id(encode_device_id(0)) == 0);
+    assert(decode_device_id(encode_device_id(UINT64_MAX)) == UINT64_MAX);
+    assert(decode_device_id(encode_device_id(0x0123456789ABCDEFULL)) == 0x0123456789ABCDEFULL);
   }
 
   return 0;
