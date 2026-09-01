@@ -18,8 +18,8 @@ namespace {
 constexpr auto kHandshakeTimeout = std::chrono::seconds(3);
 }  // namespace
 
-TcpServer::TcpServer(uint64_t own_device_id)
-    : own_device_id_(own_device_id), own_static_(get_or_create_static_keypair()) {}
+TcpServer::TcpServer(uint64_t own_device_id, KnownPeers& known_peers)
+    : own_device_id_(own_device_id), own_static_(get_or_create_static_keypair()), known_peers_(known_peers) {}
 
 TcpServer::~TcpServer() { stop(); }
 
@@ -64,6 +64,7 @@ ConnectionInfo TcpServer::status() const {
 
 void TcpServer::approve_pairing() { pairing_decision_ = PairingDecision::Approved; }
 void TcpServer::reject_pairing() { pairing_decision_ = PairingDecision::Rejected; }
+void TcpServer::disconnect_current() { disconnect_requested_ = true; }
 
 void TcpServer::run() {
   while (running_.load()) {
@@ -95,7 +96,24 @@ void TcpServer::run() {
     const uint64_t peer_device_id = decode_device_id(peer_bytes);
 
     std::optional<Key32> trusted_pubkey = known_peers_.get_pubkey(peer_device_id);
-    if (!trusted_pubkey) {
+
+    // Both sides must agree on whether pairing is needed before either one
+    // acts on its own local known_peers state: otherwise one side (e.g.
+    // after the other end forgot it) could skip straight into an IK
+    // message while its peer is still expecting a raw pubkey exchange,
+    // desyncing the byte stream.
+    const uint8_t own_wants_pairing = trusted_pubkey.has_value() ? 0 : 1;
+    uint8_t peer_wants_pairing = 1;
+    deadline = std::chrono::steady_clock::now() + kHandshakeTimeout;
+    const bool pairing_flag_ok = send_all(client, &own_wants_pairing, 1) &&
+                                  recv_all(client, &peer_wants_pairing, 1, deadline);
+    if (!pairing_flag_ok) {
+      close_socket(client);
+      continue;
+    }
+    const bool need_pairing = !trusted_pubkey.has_value() || peer_wants_pairing != 0;
+
+    if (need_pairing) {
       Key32 peer_raw_pubkey;
       deadline = std::chrono::steady_clock::now() + kHandshakeTimeout;
       const bool pubkey_ok = send_all(client, own_static_.public_key.data(), own_static_.public_key.size()) &&
@@ -147,7 +165,8 @@ void TcpServer::run() {
       status_ = ConnectionInfo{ConnectionState::Connected, peer_device_id, ip_buf, ""};
     }
 
-    while (running_.load()) {
+    disconnect_requested_ = false;
+    while (running_.load() && !disconnect_requested_.load()) {
       uint8_t watch_byte;
       const int n = recv(client, reinterpret_cast<char*>(&watch_byte), 1, 0);
       if (n == 0) break;  // peer closed

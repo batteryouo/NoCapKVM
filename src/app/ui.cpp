@@ -13,7 +13,7 @@ void start_discovery(AppState& state, discovery::Role role) {
 
   uint16_t tcp_port = 0;
   if (role == discovery::Role::Master) {
-    state.tcp_server = std::make_unique<discovery::TcpServer>(state.device_id);
+    state.tcp_server = std::make_unique<discovery::TcpServer>(state.device_id, state.known_peers);
     state.tcp_server->start();
     tcp_port = state.tcp_server->port();
   }
@@ -43,6 +43,11 @@ void draw_role_select(AppState& state) {
   ImGui::Spacing();
   if (ImGui::Button("I am the Master", ImVec2(220, 40))) start_discovery(state, discovery::Role::Master);
   if (ImGui::Button("I am a Slave", ImVec2(220, 40))) start_discovery(state, discovery::Role::Slave);
+  ImGui::Spacing();
+  if (ImGui::Button("Manage known devices")) {
+    state.previous_screen = Screen::RoleSelect;
+    state.screen = Screen::ManageDevices;
+  }
   ImGui::End();
 }
 
@@ -82,7 +87,8 @@ void draw_discovery(AppState& state) {
         ImGui::PushID(static_cast<int>(peer.device_id));
         ImGui::BeginDisabled(peer.tcp_port == 0);
         if (ImGui::Button("Connect")) {
-          state.tcp_client = std::make_unique<discovery::TcpClient>(state.device_id, peer.ip_address, peer.tcp_port);
+          state.tcp_client = std::make_unique<discovery::TcpClient>(state.device_id, peer.ip_address, peer.tcp_port,
+                                                                      state.known_peers);
           state.tcp_client->start();
         }
         ImGui::EndDisabled();
@@ -103,6 +109,7 @@ void draw_discovery(AppState& state) {
       if (ImGui::Button("Reject")) state.tcp_server->reject_pairing();
     } else if (info.state == discovery::ConnectionState::Connected) {
       ImGui::Text("Connected: %s", resolve_peer_name(state, info.peer_device_id, info.peer_ip).c_str());
+      if (ImGui::Button("Disconnect")) state.tcp_server->disconnect_current();
     } else {
       ImGui::TextUnformatted("Waiting for a Slave to connect...");
     }
@@ -115,9 +122,16 @@ void draw_discovery(AppState& state) {
       ImGui::TextUnformatted("Waiting for the Master to approve...");
     } else if (info.state == discovery::ConnectionState::Connected) {
       ImGui::Text("Connected: %s", resolve_peer_name(state, info.peer_device_id, info.peer_ip).c_str());
+      if (ImGui::Button("Disconnect")) state.tcp_client.reset();
     } else {
       ImGui::TextUnformatted("Connection failed");
     }
+  }
+
+  ImGui::Spacing();
+  if (ImGui::Button("Manage known devices")) {
+    state.previous_screen = Screen::Discovery;
+    state.screen = Screen::ManageDevices;
   }
 
   ImGui::Spacing();
@@ -128,6 +142,46 @@ void draw_discovery(AppState& state) {
     state.tcp_client.reset();
     state.screen = Screen::RoleSelect;
   }
+  ImGui::End();
+}
+
+void draw_manage_devices(AppState& state) {
+  ImGui::Begin("NoCapKVM", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize);
+  ImGui::TextUnformatted("Known devices:");
+  ImGui::Spacing();
+
+  if (ImGui::BeginTable("known_peers", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg, ImVec2(420, 150))) {
+    ImGui::TableSetupColumn("Device ID");
+    ImGui::TableSetupColumn("Key");
+    ImGui::TableSetupColumn("Forget");
+    ImGui::TableHeadersRow();
+
+    for (const auto& entry : state.known_peers.list()) {
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::Text("%016llx", static_cast<unsigned long long>(entry.device_id));
+      ImGui::TableSetColumnIndex(1);
+      ImGui::Text("%02x%02x%02x%02x...", entry.pubkey[0], entry.pubkey[1], entry.pubkey[2], entry.pubkey[3]);
+      ImGui::TableSetColumnIndex(2);
+      ImGui::PushID(static_cast<int>(entry.device_id));
+      if (ImGui::Button("Forget")) {
+        state.known_peers.forget(entry.device_id);
+        if (state.tcp_server && state.tcp_server->status().state == discovery::ConnectionState::Connected &&
+            state.tcp_server->status().peer_device_id == entry.device_id) {
+          state.tcp_server->disconnect_current();
+        }
+        if (state.tcp_client && state.tcp_client->status().state == discovery::ConnectionState::Connected &&
+            state.tcp_client->status().peer_device_id == entry.device_id) {
+          state.tcp_client.reset();
+        }
+      }
+      ImGui::PopID();
+    }
+    ImGui::EndTable();
+  }
+
+  ImGui::Spacing();
+  if (ImGui::Button("Back")) state.screen = state.previous_screen;
   ImGui::End();
 }
 

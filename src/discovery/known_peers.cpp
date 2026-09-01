@@ -60,6 +60,20 @@ void KnownPeers::remember(uint64_t device_id, const Key32& pubkey) {
   save();
 }
 
+void KnownPeers::forget(uint64_t device_id) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  peers_.erase(device_id);
+  save();
+}
+
+std::vector<KnownPeerEntry> KnownPeers::list() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<KnownPeerEntry> result;
+  result.reserve(peers_.size());
+  for (const auto& [device_id, pubkey] : peers_) result.push_back({device_id, pubkey});
+  return result;
+}
+
 void KnownPeers::save() const {
   std::error_code ec;
   std::filesystem::create_directories(config_dir(), ec);

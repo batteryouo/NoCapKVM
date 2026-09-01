@@ -18,7 +18,7 @@ enum class PairingDecision : uint8_t { Pending, Approved, Rejected };
 // goes back to accepting.
 class TcpServer {
 public:
-  explicit TcpServer(uint64_t own_device_id);
+  TcpServer(uint64_t own_device_id, KnownPeers& known_peers);
   ~TcpServer();
   TcpServer(const TcpServer&) = delete;
   TcpServer& operator=(const TcpServer&) = delete;
@@ -35,16 +35,21 @@ public:
   void approve_pairing();
   void reject_pairing();
 
+  // Called from the UI thread to end the current connection (if any)
+  // without stopping the listener itself.
+  void disconnect_current();
+
 private:
   void run();
 
   uint64_t own_device_id_;
   Keypair own_static_;
-  KnownPeers known_peers_;
+  KnownPeers& known_peers_;
   socket_t listen_socket_ = kInvalidSocket;
   uint16_t port_ = 0;
   std::atomic<bool> running_{false};
   std::atomic<PairingDecision> pairing_decision_{PairingDecision::Pending};
+  std::atomic<bool> disconnect_requested_{false};
   std::thread thread_;
   mutable std::mutex status_mutex_;
   ConnectionInfo status_;

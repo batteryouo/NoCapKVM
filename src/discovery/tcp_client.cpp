@@ -18,9 +18,10 @@ namespace {
 constexpr auto kHandshakeTimeout = std::chrono::seconds(3);
 }  // namespace
 
-TcpClient::TcpClient(uint64_t own_device_id, std::string peer_ip, uint16_t peer_port)
+TcpClient::TcpClient(uint64_t own_device_id, std::string peer_ip, uint16_t peer_port, KnownPeers& known_peers)
     : own_device_id_(own_device_id),
       own_static_(get_or_create_static_keypair()),
+      known_peers_(known_peers),
       peer_ip_(std::move(peer_ip)),
       peer_port_(peer_port) {}
 
@@ -82,7 +83,26 @@ void TcpClient::run() {
   const uint64_t peer_device_id = decode_device_id(peer_bytes);
 
   std::optional<Key32> rs = known_peers_.get_pubkey(peer_device_id);
-  if (!rs) {
+
+  // Both sides must agree on whether pairing is needed before either one
+  // acts on its own local known_peers state: otherwise one side (e.g.
+  // after the other end forgot it) could skip straight into an IK message
+  // while its peer is still expecting a raw pubkey exchange, desyncing
+  // the byte stream.
+  const uint8_t own_wants_pairing = rs.has_value() ? 0 : 1;
+  uint8_t peer_wants_pairing = 1;
+  deadline = std::chrono::steady_clock::now() + kHandshakeTimeout;
+  const bool pairing_flag_ok =
+      send_all(sock, &own_wants_pairing, 1) && recv_all(sock, &peer_wants_pairing, 1, deadline);
+  if (!pairing_flag_ok) {
+    close_socket(sock);
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    status_.state = ConnectionState::Failed;
+    return;
+  }
+  const bool need_pairing = !rs.has_value() || peer_wants_pairing != 0;
+
+  if (need_pairing) {
     Key32 peer_raw_pubkey;
     deadline = std::chrono::steady_clock::now() + kHandshakeTimeout;
     const bool pubkey_ok = send_all(sock, own_static_.public_key.data(), own_static_.public_key.size()) &&
