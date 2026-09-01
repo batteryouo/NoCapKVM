@@ -171,6 +171,37 @@ int main() {
     std::filesystem::remove_all(scratch);
   }
 
+  // KnownPeers list()/forget().
+  {
+    const std::filesystem::path scratch = std::filesystem::temp_directory_path() / "nockvm_test_known_peers_forget";
+    std::filesystem::remove_all(scratch);
+    set_env("NOCKVM_HOME", scratch);
+
+    Key32 key_a{}, key_b{};
+    key_a.fill(0x11);
+    key_b.fill(0x22);
+
+    KnownPeers peers;
+    peers.remember(1, key_a);
+    peers.remember(2, key_b);
+    assert(peers.list().size() == 2);
+
+    peers.forget(1);
+    assert(!peers.is_known(1));
+    assert(peers.is_known(2));
+    const auto listed = peers.list();
+    assert(listed.size() == 1);
+    assert(listed[0].device_id == 2);
+    assert(listed[0].pubkey == key_b);
+
+    // Forgetting must also persist: a fresh instance should not see it either.
+    KnownPeers peers2;
+    assert(!peers2.is_known(1));
+    assert(peers2.is_known(2));
+
+    std::filesystem::remove_all(scratch);
+  }
+
   std::printf("All crypto tests passed.\n");
   return 0;
 }

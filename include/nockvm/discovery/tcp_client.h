@@ -16,7 +16,7 @@ namespace nockvm::discovery {
 // or stop() is called.
 class TcpClient {
 public:
-  TcpClient(uint64_t own_device_id, std::string peer_ip, uint16_t peer_port);
+  TcpClient(uint64_t own_device_id, std::string peer_ip, uint16_t peer_port, KnownPeers& known_peers);
   ~TcpClient();
   TcpClient(const TcpClient&) = delete;
   TcpClient& operator=(const TcpClient&) = delete;
@@ -31,7 +31,7 @@ private:
 
   uint64_t own_device_id_;
   Keypair own_static_;
-  KnownPeers known_peers_;
+  KnownPeers& known_peers_;
   std::string peer_ip_;
   uint16_t peer_port_;
   std::atomic<bool> running_{false};

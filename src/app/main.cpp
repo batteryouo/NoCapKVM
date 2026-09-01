@@ -43,8 +43,11 @@ int main() {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    if (state.screen == nockvm::app::Screen::RoleSelect) nockvm::app::draw_role_select(state);
-    else nockvm::app::draw_discovery(state);
+    switch (state.screen) {
+      case nockvm::app::Screen::RoleSelect: nockvm::app::draw_role_select(state); break;
+      case nockvm::app::Screen::Discovery: nockvm::app::draw_discovery(state); break;
+      case nockvm::app::Screen::ManageDevices: nockvm::app::draw_manage_devices(state); break;
+    }
 
     ImGui::Render();
     int width, height;
