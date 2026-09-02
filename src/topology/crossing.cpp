@@ -70,19 +70,24 @@ BoundaryCheck check_boundary(ClusterBounds bounds, int32_t x, int32_t y) {
   result.clamped_x = clamp(x, bounds.min_x, bounds.max_x);
   result.clamped_y = clamp(y, bounds.min_y, bounds.max_y);
 
-  if (x < bounds.min_x) {
+  // <=/>= rather than strict <, >: while the local machine owns input, (x, y)
+  // comes from the real OS cursor position, which Windows itself already
+  // clamps to the desktop bounds — it can never actually go past bounds, only
+  // reach exactly bounds.min_x/max_x/etc. Touching the edge is the only
+  // observable signal that the mouse is being pushed against it.
+  if (x <= bounds.min_x) {
     result.crossed = true;
     result.direction = Direction::Left;
     result.perp_pos = result.clamped_y;
-  } else if (x > bounds.max_x) {
+  } else if (x >= bounds.max_x) {
     result.crossed = true;
     result.direction = Direction::Right;
     result.perp_pos = result.clamped_y;
-  } else if (y < bounds.min_y) {
+  } else if (y <= bounds.min_y) {
     result.crossed = true;
     result.direction = Direction::Up;
     result.perp_pos = result.clamped_x;
-  } else if (y > bounds.max_y) {
+  } else if (y >= bounds.max_y) {
     result.crossed = true;
     result.direction = Direction::Down;
     result.perp_pos = result.clamped_x;

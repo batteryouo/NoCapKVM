@@ -47,7 +47,25 @@ void InputHook::uninstall() {
   if (g_instance == this) g_instance = nullptr;
 }
 
-void InputHook::set_suppress(bool suppress) { suppress_.store(suppress); }
+void InputHook::suppress() {
+  // Center of the whole virtual desktop (spanning all monitors) — guaranteed
+  // interior, not at any physical edge, regardless of monitor layout.
+  const int32_t x = GetSystemMetrics(SM_XVIRTUALSCREEN) + GetSystemMetrics(SM_CXVIRTUALSCREEN) / 2;
+  const int32_t y = GetSystemMetrics(SM_YVIRTUALSCREEN) + GetSystemMetrics(SM_CYVIRTUALSCREEN) / 2;
+  SetCursorPos(x, y);
+  anchor_x_ = x;
+  anchor_y_ = y;
+  suppress_.store(true);
+}
+
+void InputHook::resume() { suppress_.store(false); }
+
+void InputHook::resume(int32_t x, int32_t y) {
+  SetCursorPos(x, y);
+  anchor_x_ = x;
+  anchor_y_ = y;
+  suppress_.store(false);
+}
 
 InputFrame InputHook::poll() {
   InputFrame frame = std::move(pending_);
@@ -141,7 +159,9 @@ InputHook::InputHook() = default;
 InputHook::~InputHook() = default;
 bool InputHook::install() { return false; }
 void InputHook::uninstall() {}
-void InputHook::set_suppress(bool) {}
+void InputHook::suppress() {}
+void InputHook::resume() {}
+void InputHook::resume(int32_t, int32_t) {}
 InputFrame InputHook::poll() { return InputFrame{}; }
 
 }  // namespace nockvm::input

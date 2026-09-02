@@ -19,11 +19,6 @@ void inject_key(uint32_t vk, uint32_t scancode, bool down, bool extended);
 // leave a modifier stuck held on this machine.
 void set_modifiers(uint8_t mask);
 
-// Moves this machine's own real cursor directly (plain SetCursorPos, no
-// SendInput) — used by Master to place its local cursor at the correct
-// landing point when regaining input ownership.
-void set_local_cursor_pos(int32_t x, int32_t y);
-
 // Reads this machine's own real cursor position (plain GetCursorPos) — used
 // to seed logical position tracking with the same value InputHook's
 // anchor starts from, on non-Windows always returns false.
