@@ -5,6 +5,7 @@
 #include <backends/imgui_impl_opengl3.h>
 #include "app_state.h"
 #include "nockvm/discovery/identity.h"
+#include "nockvm/display/monitor_info.h"
 #include "ui.h"
 
 namespace {
@@ -35,6 +36,7 @@ int main() {
   nockvm::app::AppState state;
   state.device_id = nockvm::discovery::get_or_create_device_id();
   state.hostname = nockvm::discovery::get_hostname();
+  state.local_monitors = nockvm::display::get_local_monitors();
 
   while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();

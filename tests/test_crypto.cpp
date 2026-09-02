@@ -7,6 +7,7 @@
 #include "nockvm/discovery/noise_ik.h"
 #include "nockvm/discovery/pairing.h"
 #include "nockvm/discovery/platform_socket.h"
+#include "nockvm/discovery/secure_channel.h"
 #include "nockvm/discovery/static_keys.h"
 
 #ifdef _WIN32
@@ -134,6 +135,103 @@ int main() {
     close_socket(listener);
 
     assert(!initiator_result.ok);
+  }
+
+  // SecureChannel round trip over a real loopback socket pair, keyed by a
+  // real IK handshake's derived TransportKeys.
+  {
+    const Keypair initiator_static = generate_keypair();
+    const Keypair responder_static = generate_keypair();
+
+    uint16_t port = 0;
+    socket_t listener = make_loopback_listener(port);
+
+    IkResult responder_result;
+    std::thread responder_thread([&] {
+      socket_t client = accept(listener, nullptr, nullptr);
+      set_receive_timeout(client, std::chrono::milliseconds(200));
+      responder_result =
+          run_ik_responder(client, responder_static, std::chrono::steady_clock::now() + std::chrono::seconds(3));
+      if (responder_result.ok) {
+        SecureChannel channel(client, responder_result.keys);
+        uint8_t type = 0;
+        std::vector<uint8_t> payload;
+        const auto result =
+            channel.receive(type, payload, std::chrono::steady_clock::now() + std::chrono::seconds(3));
+        assert(result == SecureChannel::RecvResult::Ok);
+        assert(type == 7);
+        assert(payload == std::vector<uint8_t>({1, 2, 3}));
+        const uint8_t reply[1] = {9};
+        assert(channel.send(8, reply, 1));
+      }
+      close_socket(client);
+    });
+
+    socket_t initiator_sock = connect_loopback(port);
+    set_receive_timeout(initiator_sock, std::chrono::milliseconds(200));
+    const IkResult initiator_result =
+        run_ik_initiator(initiator_sock, initiator_static, responder_static.public_key,
+                          std::chrono::steady_clock::now() + std::chrono::seconds(3));
+    assert(initiator_result.ok);
+
+    SecureChannel channel(initiator_sock, initiator_result.keys);
+    const uint8_t msg[3] = {1, 2, 3};
+    assert(channel.send(7, msg, 3));
+
+    uint8_t type = 0;
+    std::vector<uint8_t> payload;
+    const auto result = channel.receive(type, payload, std::chrono::steady_clock::now() + std::chrono::seconds(3));
+    assert(result == SecureChannel::RecvResult::Ok);
+    assert(type == 8);
+    assert(payload.size() == 1 && payload[0] == 9);
+
+    responder_thread.join();
+    close_socket(initiator_sock);
+    close_socket(listener);
+  }
+
+  // SecureChannel: mismatched keys must fail closed (Error), not crash or
+  // silently decrypt garbage.
+  {
+    const Keypair initiator_static = generate_keypair();
+    const Keypair responder_static = generate_keypair();
+
+    uint16_t port = 0;
+    socket_t listener = make_loopback_listener(port);
+
+    IkResult responder_result;
+    std::thread responder_thread([&] {
+      socket_t client = accept(listener, nullptr, nullptr);
+      set_receive_timeout(client, std::chrono::milliseconds(200));
+      responder_result =
+          run_ik_responder(client, responder_static, std::chrono::steady_clock::now() + std::chrono::seconds(3));
+      if (responder_result.ok) {
+        // Deliberately swap send/recv keys to simulate a corrupted/mismatched channel.
+        TransportKeys wrong_keys{responder_result.keys.recv_key, responder_result.keys.send_key};
+        SecureChannel channel(client, wrong_keys);
+        uint8_t type = 0;
+        std::vector<uint8_t> payload;
+        const auto result =
+            channel.receive(type, payload, std::chrono::steady_clock::now() + std::chrono::seconds(1));
+        assert(result == SecureChannel::RecvResult::Error);
+      }
+      close_socket(client);
+    });
+
+    socket_t initiator_sock = connect_loopback(port);
+    set_receive_timeout(initiator_sock, std::chrono::milliseconds(200));
+    const IkResult initiator_result =
+        run_ik_initiator(initiator_sock, initiator_static, responder_static.public_key,
+                          std::chrono::steady_clock::now() + std::chrono::seconds(3));
+    assert(initiator_result.ok);
+
+    SecureChannel channel(initiator_sock, initiator_result.keys);
+    const uint8_t msg[1] = {42};
+    assert(channel.send(1, msg, 1));
+
+    responder_thread.join();
+    close_socket(initiator_sock);
+    close_socket(listener);
   }
 
   // Static keypair persistence.
