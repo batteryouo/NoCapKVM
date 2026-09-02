@@ -30,4 +30,17 @@ std::optional<ClipboardContent> read_clipboard();
 // serving PNG/UTF8_STRING to whoever asks).
 void write_clipboard(const ClipboardContent& content);
 
+// Services OS-level clipboard housekeeping that has to keep happening
+// regardless of whether anything is currently Connected: on X11,
+// responding to other apps' SelectionRequest while we're the CLIPBOARD
+// owner (a no-op on Windows, which has no equivalent). Call this every
+// frame unconditionally -- unlike read_clipboard()/write_clipboard(),
+// which the app layer only calls while Connected and throttled to about
+// once a second, content applied by an earlier write_clipboard() call
+// keeps sitting on the clipboard (and this process keeps owning the
+// selection on X11) even after disconnecting, and without this running
+// independently, other apps' paste requests for it would never get a
+// reply.
+void pump_events();
+
 }  // namespace nockvm::clipboard
