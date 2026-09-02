@@ -1,7 +1,6 @@
 #include "nockvm/input/hook.h"
 
 #ifdef _WIN32
-#include <algorithm>
 #include <windows.h>
 
 namespace nockvm::input {
@@ -49,31 +48,11 @@ void InputHook::uninstall() {
 }
 
 void InputHook::suppress() {
-  const int32_t vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
-  const int32_t vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
-  const int32_t vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-  const int32_t vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-  POINT pt{};
-  GetCursorPos(&pt);
-  // Inset a modest amount from wherever the cursor already is (normally
-  // sitting right at the edge that was just crossed) rather than jumping
-  // all the way to the desktop center: keeps the visible move on this
-  // machine's own screen small, while still leaving enough headroom that a
-  // sustained push doesn't immediately re-hit a real edge and lose delta
-  // tracking again (the original bug this recenter technique exists for).
-  constexpr int32_t kInset = 150;
-  const int32_t x = std::clamp(static_cast<int32_t>(pt.x), vx + kInset, vx + vw - 1 - kInset);
-  const int32_t y = std::clamp(static_cast<int32_t>(pt.y), vy + kInset, vy + vh - 1 - kInset);
-  // Update anchor/suppress_ BEFORE the SetCursorPos call, not after: if that
-  // call synchronously re-enters mouse_proc (observed intermittently), the
-  // hook must already see the final state, or its own suppressed-branch
-  // recenter logic reads the stale (pre-update) anchor and stomps this
-  // target position right back to wherever suppression last centered.
-  anchor_x_ = x;
-  anchor_y_ = y;
+  // The cursor is left exactly where it is -- no GetCursorPos/SetCursorPos
+  // needed here at all. Further movement while suppressed comes from
+  // feed_raw_delta() instead of pt-based tracking, so there's no clamp
+  // risk to work around by moving the cursor away from the edge.
   suppress_.store(true);
-  SetCursorPos(x, y);
 }
 
 void InputHook::resume() { suppress_.store(false); }
@@ -120,12 +99,13 @@ LRESULT CALLBACK mouse_proc(int code, WPARAM wparam, LPARAM lparam) {
   const bool suppress = self->suppress_.load();
 
   if (wparam == WM_MOUSEMOVE) {
+    // While suppressed, pt-based tracking is abandoned entirely (it's
+    // clamped to the real desktop bounds and the cursor is deliberately
+    // left wherever it is, so there's nothing useful to compute here) --
+    // feed_raw_delta() supplies movement instead. Just block.
+    if (suppress) return 1;
     self->pending_.dx += info->pt.x - self->anchor_x_;
     self->pending_.dy += info->pt.y - self->anchor_y_;
-    if (suppress) {
-      SetCursorPos(self->anchor_x_, self->anchor_y_);
-      return 1;
-    }
     self->anchor_x_ = info->pt.x;
     self->anchor_y_ = info->pt.y;
     return CallNextHookEx(nullptr, code, wparam, lparam);
@@ -179,6 +159,13 @@ LRESULT CALLBACK keyboard_proc(int code, WPARAM wparam, LPARAM lparam) {
 }
 
 }  // namespace
+
+void feed_raw_delta(int32_t dx, int32_t dy) {
+  if (!g_instance || !g_instance->suppress_.load()) return;
+  g_instance->pending_.dx += dx;
+  g_instance->pending_.dy += dy;
+}
+
 }  // namespace nockvm::input
 
 #else  // !_WIN32
@@ -193,6 +180,7 @@ void InputHook::suppress() {}
 void InputHook::resume() {}
 void InputHook::resume(int32_t, int32_t) {}
 InputFrame InputHook::poll() { return InputFrame{}; }
+void feed_raw_delta(int32_t, int32_t) {}
 
 }  // namespace nockvm::input
 

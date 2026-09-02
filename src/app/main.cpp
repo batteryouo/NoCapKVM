@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <vector>
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -11,9 +12,65 @@
 #include "nockvm/topology/crossing.h"
 #include "ui.h"
 
+#ifdef _WIN32
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
+#include <windows.h>
+#endif
+
 namespace {
 
 void glfw_error_callback(int error, const char* description) { std::fprintf(stderr, "GLFW error %d: %s\n", error, description); }
+
+#ifdef _WIN32
+WNDPROC g_original_wndproc = nullptr;
+
+// Master's capture (nockvm/input/hook.cpp) needs raw, unclamped mouse
+// deltas while input is suppressed -- WH_MOUSE_LL's own position field is
+// clamped to the real desktop bounds, which is exactly the problem this
+// exists to work around. Raw Input reports HID deltas directly, bypassing
+// that clamp entirely (the same mechanism games use for unbounded
+// mouse-look). This subclasses the GLFW window to observe WM_INPUT;
+// everything else is forwarded to GLFW's own procedure untouched.
+LRESULT CALLBACK raw_input_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+  if (msg == WM_INPUT) {
+    UINT size = 0;
+    GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
+    if (size > 0) {
+      std::vector<BYTE> buffer(size);
+      if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, buffer.data(), &size, sizeof(RAWINPUTHEADER)) ==
+          size) {
+        const auto* raw = reinterpret_cast<const RAWINPUT*>(buffer.data());
+        if (raw->header.dwType == RIM_TYPEMOUSE && !(raw->data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
+          nockvm::input::feed_raw_delta(raw->data.mouse.lLastX, raw->data.mouse.lLastY);
+        }
+      }
+    }
+  }
+  return CallWindowProcW(g_original_wndproc, hwnd, msg, wparam, lparam);
+}
+
+void install_raw_input(GLFWwindow* window) {
+  const HWND hwnd = glfwGetWin32Window(window);
+
+  RAWINPUTDEVICE rid{};
+  rid.usUsagePage = 0x01;  // generic desktop
+  rid.usUsage = 0x02;      // mouse
+  rid.dwFlags = RIDEV_INPUTSINK;
+  rid.hwndTarget = hwnd;
+  RegisterRawInputDevices(&rid, 1, sizeof(rid));
+
+  g_original_wndproc = reinterpret_cast<WNDPROC>(GetWindowLongPtrW(hwnd, GWLP_WNDPROC));
+  SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(raw_input_wndproc));
+}
+
+void uninstall_raw_input(GLFWwindow* window) {
+  if (!g_original_wndproc) return;
+  const HWND hwnd = glfwGetWin32Window(window);
+  SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(g_original_wndproc));
+  g_original_wndproc = nullptr;
+}
+#endif
 
 }  // namespace
 
@@ -28,6 +85,10 @@ int main() {
   }
   glfwMakeContextCurrent(window);
   glfwSwapInterval(1);
+
+#ifdef _WIN32
+  install_raw_input(window);
+#endif
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -79,6 +140,10 @@ int main() {
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplGlfw_Shutdown();
   ImGui::DestroyContext();
+
+#ifdef _WIN32
+  uninstall_raw_input(window);
+#endif
 
   glfwDestroyWindow(window);
   glfwTerminate();
