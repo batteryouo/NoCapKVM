@@ -3,6 +3,8 @@
 #ifdef _WIN32
 #include <ws2tcpip.h>
 #else
+#include <cerrno>
+#include <fcntl.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -15,6 +17,16 @@ namespace {
 socket_t create_socket(int type) {
   static SocketLibraryGuard guard;
   return socket(AF_INET, type, 0);
+}
+
+void set_non_blocking(socket_t sock, bool non_blocking) {
+#ifdef _WIN32
+  u_long mode = non_blocking ? 1 : 0;
+  ioctlsocket(sock, FIONBIO, &mode);
+#else
+  const int flags = fcntl(sock, F_GETFL, 0);
+  fcntl(sock, F_SETFL, non_blocking ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK));
+#endif
 }
 
 }  // namespace
@@ -71,6 +83,48 @@ bool wait_readable(socket_t sock, std::chrono::milliseconds timeout) {
   tv.tv_sec = static_cast<long>(timeout.count() / 1000);
   tv.tv_usec = static_cast<long>((timeout.count() % 1000) * 1000);
   return select(static_cast<int>(sock) + 1, &read_set, nullptr, nullptr, &tv) > 0;
+}
+
+bool connect_with_timeout(socket_t sock, const sockaddr* addr, size_t addr_len, std::chrono::milliseconds timeout) {
+  set_non_blocking(sock, true);
+
+#ifdef _WIN32
+  const int rc = connect(sock, addr, static_cast<int>(addr_len));
+  const bool in_progress = rc != 0 && WSAGetLastError() == WSAEWOULDBLOCK;
+#else
+  const int rc = connect(sock, addr, static_cast<socklen_t>(addr_len));
+  const bool in_progress = rc != 0 && errno == EINPROGRESS;
+#endif
+
+  bool connected = rc == 0;
+  if (!connected && !in_progress) {
+    set_non_blocking(sock, false);
+    return false;
+  }
+
+  if (!connected) {
+    fd_set write_set;
+    FD_ZERO(&write_set);
+    FD_SET(sock, &write_set);
+    struct timeval tv;
+    tv.tv_sec = static_cast<long>(timeout.count() / 1000);
+    tv.tv_usec = static_cast<long>((timeout.count() % 1000) * 1000);
+    if (select(static_cast<int>(sock) + 1, nullptr, &write_set, nullptr, &tv) <= 0) {
+      set_non_blocking(sock, false);
+      return false;  // timed out or select error
+    }
+    int so_error = 0;
+#ifdef _WIN32
+    int err_len = sizeof(so_error);
+#else
+    socklen_t err_len = sizeof(so_error);
+#endif
+    getsockopt(sock, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&so_error), &err_len);
+    connected = so_error == 0;
+  }
+
+  set_non_blocking(sock, false);
+  return connected;
 }
 
 bool send_all(socket_t sock, const uint8_t* data, size_t len) {
