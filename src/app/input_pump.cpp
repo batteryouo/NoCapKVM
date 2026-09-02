@@ -64,6 +64,14 @@ void handle_master_owned(AppState& state, const discovery::ConnectionInfo& info,
   state.input_just_handed_off = false;
 
   const auto arrangement = state.screen_arrangement.get(info.peer_device_id);
+  if (bc.crossed) {
+    debug_log(
+        "[B->A attempt] bc_dir=%d perp=%d skip=%d has_arrangement=%d arr_dir=%d dir_match=%d peer_monitors_empty=%d "
+        "logical_before=(%d,%d)\n",
+        static_cast<int>(bc.direction), bc.perp_pos, skip_crossing, arrangement.has_value(),
+        arrangement ? static_cast<int>(arrangement->direction) : -1, arrangement && arrangement->direction == bc.direction,
+        info.peer_monitors.empty(), state.input_logical_x, state.input_logical_y);
+  }
   if (!skip_crossing && bc.crossed && arrangement && arrangement->direction == bc.direction &&
       !info.peer_monitors.empty()) {
     const topology::CrossingResult cross =
@@ -125,6 +133,12 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
       bc.crossed && ((overshoot_x >= kReturnMargin || overshoot_x <= -kReturnMargin) ||
                       (overshoot_y >= kReturnMargin || overshoot_y <= -kReturnMargin));
 
+  if (bc.crossed) {
+    debug_log("[A->B attempt] bc_dir=%d perp=%d skip=%d overshoot=(%d,%d) past_margin=%d logical_before=(%d,%d)\n",
+              static_cast<int>(bc.direction), bc.perp_pos, skip_crossing, overshoot_x, overshoot_y, past_margin,
+              state.input_logical_x, state.input_logical_y);
+  }
+
   state.input_logical_x = bc.clamped_x;
   state.input_logical_y = bc.clamped_y;
 
@@ -147,15 +161,25 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
 
   if (skip_crossing || !past_margin) return;
   const auto arrangement = state.screen_arrangement.get(info.peer_device_id);
-  if (!arrangement) return;
+  if (!arrangement) {
+    debug_log("[A->B attempt] rejected: no arrangement for this peer\n");
+    return;
+  }
 
   const topology::ClusterBounds master_bounds = topology::compute_bounds(state.local_monitors);
   const topology::ArrangementEntry inv = topology::invert_entry(*arrangement, master_bounds, peer_bounds);
-  if (bc.direction != inv.direction) return;
+  if (bc.direction != inv.direction) {
+    debug_log("[A->B attempt] rejected: bc_dir=%d != inv_dir=%d (arrangement dir=%d)\n", static_cast<int>(bc.direction),
+              static_cast<int>(inv.direction), static_cast<int>(arrangement->direction));
+    return;
+  }
 
   const topology::CrossingResult cross =
       topology::compute_crossing(state.local_monitors, inv.direction, inv.offset, bc.perp_pos);
-  if (!cross.has_target) return;
+  if (!cross.has_target) {
+    debug_log("[A->B attempt] rejected: compute_crossing has_target=false\n");
+    return;
+  }
 
   // Carry the overshoot already computed above (the margin check) into
   // Master's space along the axis being crossed, for the same reason as the
