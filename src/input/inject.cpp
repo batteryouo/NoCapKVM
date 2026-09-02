@@ -1,6 +1,4 @@
 #include "nockvm/input/inject.h"
-#include <cstdarg>
-#include <cstdio>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -9,18 +7,6 @@ namespace nockvm::input {
 namespace {
 
 void send(INPUT& input) { SendInput(1, &input, sizeof(INPUT)); }
-
-// TEMPORARY DEBUG LOGGING -- remove once the crossing-coordinate issue is
-// diagnosed. Appends to nockvm_debug.log in the process's working directory.
-void debug_log(const char* fmt, ...) {
-  FILE* f = std::fopen("nockvm_debug.log", "a");
-  if (!f) return;
-  va_list args;
-  va_start(args, fmt);
-  std::vfprintf(f, fmt, args);
-  va_end(args);
-  std::fclose(f);
-}
 
 }  // namespace
 
@@ -37,11 +23,6 @@ void inject_mouse_absolute(int32_t x, int32_t y) {
   input.mi.dy = static_cast<LONG>((static_cast<double>(y - vy) * 65535.0) / (vh - 1));
   input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
   send(input);
-
-  POINT pt;
-  GetCursorPos(&pt);
-  debug_log("[inject_mouse_absolute] received=(%d,%d) virtual_screen=(%d,%d,%d,%d) normalized=(%ld,%ld) real_cursor_after=(%ld,%ld)\n",
-            x, y, vx, vy, vw, vh, input.mi.dx, input.mi.dy, pt.x, pt.y);
 }
 
 void inject_mouse_button(uint8_t button, bool down) {
@@ -121,18 +102,6 @@ namespace {
 
 int32_t g_bounds_min_x = 0, g_bounds_max_x = 65535, g_bounds_min_y = 0, g_bounds_max_y = 65535;
 uint8_t g_modifier_state = 0;  // shadow of held Shift/Ctrl/Alt/Meta -- uinput is write-only, no readback
-
-// TEMPORARY DEBUG LOGGING -- remove once the crossing-coordinate issue is
-// diagnosed. Appends to nockvm_debug.log in the process's working directory.
-void debug_log(const char* fmt, ...) {
-  FILE* f = std::fopen("nockvm_debug.log", "a");
-  if (!f) return;
-  va_list args;
-  va_start(args, fmt);
-  std::vfprintf(f, fmt, args);
-  va_end(args);
-  std::fclose(f);
-}
 
 void emit(int fd, uint16_t type, uint16_t code, int32_t value) {
   if (fd < 0) return;
@@ -261,8 +230,6 @@ void inject_mouse_absolute(int32_t x, int32_t y) {
   emit(fd, EV_ABS, ABS_X, x);
   emit(fd, EV_ABS, ABS_Y, y);
   sync_report(fd);
-  debug_log("[inject_mouse_absolute] received=(%d,%d) abs_bounds=(%d,%d,%d,%d) fd=%d\n", x, y, g_bounds_min_x,
-            g_bounds_max_x, g_bounds_min_y, g_bounds_max_y, fd);
 }
 
 void inject_mouse_button(uint8_t button, bool down) {
