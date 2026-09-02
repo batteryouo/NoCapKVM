@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -6,6 +7,7 @@
 #include "nockvm/audio/capture.h"
 #include "nockvm/audio/channel.h"
 #include "nockvm/audio/playback.h"
+#include "nockvm/clipboard/clipboard.h"
 #include "nockvm/discovery/announcer.h"
 #include "nockvm/discovery/known_peers.h"
 #include "nockvm/discovery/listener.h"
@@ -120,6 +122,33 @@ struct AppState {
   bool audio_status_reported = false;  // at least one kMsgAudioStatus sent this connection
   bool audio_last_reported_send_enabled = true;
   audio::AudioFormat audio_last_reported_format;
+
+  // Clipboard sync, both directions, driven once per frame by
+  // pump_clipboard() in clipboard_pump.cpp. Symmetric by design (either
+  // side copying something pushes it to the other), unlike audio's
+  // Slave-only capture -- so unlike audio_pump.cpp's state, these fields
+  // aren't split into Master-only/Slave-only halves.
+  //
+  // clipboard_last_seen is the last content read_clipboard() reported,
+  // regardless of source (a local copy, or the echo of our own
+  // write_clipboard() call below) -- used purely to detect "the OS
+  // clipboard's content changed since the last check" without re-reading
+  // and re-comparing on every single frame.
+  bool clipboard_last_seen_valid = false;
+  clipboard::ClipboardContent clipboard_last_seen;
+  // clipboard_last_applied is specifically the last content this process
+  // itself wrote via write_clipboard() (i.e. content that just arrived
+  // from the peer). When clipboard_last_seen changes to match this, that
+  // change is our own echo, not a new local copy -- so it must NOT be
+  // sent back to the peer, or the two sides would ping-pong the same
+  // content back and forth forever.
+  bool clipboard_last_applied_valid = false;
+  clipboard::ClipboardContent clipboard_last_applied;
+  // Throttles read_clipboard() to about once a second rather than every
+  // frame -- on X11 it round-trips through the selection-owner protocol,
+  // far more expensive than a plain memory read, and clipboard changes
+  // don't need frame-rate responsiveness anyway.
+  std::chrono::steady_clock::time_point clipboard_last_check{};
 };
 
 }  // namespace nockvm::app

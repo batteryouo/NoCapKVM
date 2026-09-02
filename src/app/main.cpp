@@ -7,6 +7,7 @@
 #include "app_state.h"
 #include "audio_pump.h"
 #include "auto_connect_pump.h"
+#include "clipboard_pump.h"
 #include "input_pump.h"
 #include "nockvm/discovery/identity.h"
 #include "nockvm/display/monitor_info.h"
@@ -114,6 +115,7 @@ int main() {
     nockvm::app::pump_input(state);
     nockvm::app::pump_audio(state);
     nockvm::app::pump_auto_connect(state);
+    nockvm::app::pump_clipboard(state);
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();

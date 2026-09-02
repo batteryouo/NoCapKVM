@@ -17,3 +17,7 @@ add_test(NAME test_topology COMMAND test_topology)
 add_executable(test_audio test_audio.cpp)
 target_link_libraries(test_audio PRIVATE nockvm_audio)
 add_test(NAME test_audio COMMAND test_audio)
+
+add_executable(test_clipboard test_clipboard.cpp)
+target_link_libraries(test_clipboard PRIVATE nockvm_clipboard)
+add_test(NAME test_clipboard COMMAND test_clipboard)
