@@ -1,6 +1,7 @@
 #include "nockvm/discovery/tcp_server.h"
 #include <chrono>
 #include <thread>
+#include "nockvm/discovery/audio_port_protocol.h"
 #include "nockvm/discovery/monitor_protocol.h"
 #include "nockvm/discovery/noise_ik.h"
 #include "nockvm/discovery/pairing.h"
@@ -48,6 +49,22 @@ void TcpServer::start() {
   getsockname(listen_socket_, reinterpret_cast<sockaddr*>(&bound), &bound_len);
   port_ = ntohs(bound.sin_port);
 
+  audio_socket_ = create_udp_socket();
+  sockaddr_in audio_addr{};
+  audio_addr.sin_family = AF_INET;
+  audio_addr.sin_port = htons(0);
+  audio_addr.sin_addr.s_addr = INADDR_ANY;
+  bind(audio_socket_, reinterpret_cast<const sockaddr*>(&audio_addr), sizeof(audio_addr));
+
+  sockaddr_in audio_bound{};
+#ifdef _WIN32
+  int audio_bound_len = sizeof(audio_bound);
+#else
+  socklen_t audio_bound_len = sizeof(audio_bound);
+#endif
+  getsockname(audio_socket_, reinterpret_cast<sockaddr*>(&audio_bound), &audio_bound_len);
+  audio_port_ = ntohs(audio_bound.sin_port);
+
   thread_ = std::thread(&TcpServer::run, this);
 }
 
@@ -57,6 +74,10 @@ void TcpServer::stop() {
   if (listen_socket_ != kInvalidSocket) {
     close_socket(listen_socket_);
     listen_socket_ = kInvalidSocket;
+  }
+  if (audio_socket_ != kInvalidSocket) {
+    close_socket(audio_socket_);
+    audio_socket_ = kInvalidSocket;
   }
 }
 
@@ -172,12 +193,17 @@ void TcpServer::run() {
     {
       std::lock_guard<std::mutex> lock(status_mutex_);
       status_ = ConnectionInfo{ConnectionState::Connected, peer_device_id, ip_buf, "", {}};
+      status_.audio_key = ik.keys.recv_key;  // the Slave-to-Master direction's key
     }
 
     SecureChannel channel(client, ik.keys);
     {
       std::lock_guard<std::mutex> lock(send_mutex_);
       active_channel_ = &channel;
+    }
+    {
+      const auto payload = encode_audio_port(audio_port_);
+      channel.send(kMsgAudioPort, payload.data(), payload.size());
     }
     disconnect_requested_ = false;
     while (running_.load() && !disconnect_requested_.load()) {

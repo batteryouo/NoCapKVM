@@ -1,5 +1,6 @@
 #include "nockvm/discovery/tcp_client.h"
 #include <chrono>
+#include "nockvm/discovery/audio_port_protocol.h"
 #include "nockvm/discovery/monitor_protocol.h"
 #include "nockvm/discovery/noise_ik.h"
 #include "nockvm/discovery/pairing.h"
@@ -188,6 +189,7 @@ void TcpClient::run() {
   {
     std::lock_guard<std::mutex> lock(status_mutex_);
     status_ = ConnectionInfo{ConnectionState::Connected, peer_device_id, peer_ip_, "", {}};
+    status_.audio_key = ik.keys.send_key;  // the Slave-to-Master direction's key
   }
 
   SecureChannel channel(sock, ik.keys);
@@ -199,7 +201,17 @@ void TcpClient::run() {
     std::vector<uint8_t> payload;
     const auto result = channel.receive(msg_type, payload, std::chrono::steady_clock::now() + std::chrono::milliseconds(200));
     if (result == SecureChannel::RecvResult::Closed) break;
-    if (result == SecureChannel::RecvResult::Ok) dispatch_input_message(msg_type, payload);
+    if (result == SecureChannel::RecvResult::Ok) {
+      if (msg_type == kMsgAudioPort) {
+        uint16_t audio_port = 0;
+        if (decode_audio_port(payload.data(), payload.size(), audio_port)) {
+          std::lock_guard<std::mutex> lock(status_mutex_);
+          status_.peer_audio_port = audio_port;
+        }
+      } else {
+        dispatch_input_message(msg_type, payload);
+      }
+    }
     // Timeout/Error: keep polling running_.
   }
 

@@ -5,6 +5,7 @@
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
 #include "app_state.h"
+#include "audio_pump.h"
 #include "input_pump.h"
 #include "nockvm/discovery/identity.h"
 #include "nockvm/display/monitor_info.h"
@@ -109,6 +110,7 @@ int main() {
   while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();
     nockvm::app::pump_input(state);
+    nockvm::app::pump_audio(state);
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
