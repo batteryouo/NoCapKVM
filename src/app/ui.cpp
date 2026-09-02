@@ -109,28 +109,7 @@ void draw_monitor_table(const char* table_id, const std::vector<display::Monitor
   }
 }
 
-}  // namespace
-
-void draw_role_select(AppState& state) {
-  begin_fullscreen_window();
-  ImGui::Text("This machine: %s", state.hostname.c_str());
-  ImGui::Text("Choose how this device should act on the LAN:");
-  ImGui::Spacing();
-  if (ImGui::Button("I am the Master", ImVec2(220, 40))) start_discovery(state, discovery::Role::Master);
-  if (ImGui::Button("I am a Slave", ImVec2(220, 40))) start_discovery(state, discovery::Role::Slave);
-  ImGui::Spacing();
-  if (ImGui::Button("Manage known devices")) {
-    state.previous_screen = Screen::RoleSelect;
-    state.screen = Screen::ManageDevices;
-  }
-  ImGui::End();
-}
-
-void draw_discovery(AppState& state) {
-  begin_fullscreen_window();
-  ImGui::Text("Role: %s  |  Host: %s", role_label(state.role), state.hostname.c_str());
-  ImGui::Separator();
-
+void draw_connection_tab(AppState& state) {
   const discovery::Role wanted = state.role == discovery::Role::Master ? discovery::Role::Slave : discovery::Role::Master;
   const bool is_slave = state.role == discovery::Role::Slave;
   ImGui::Text("Discovered %s(s):", role_label(wanted));
@@ -214,6 +193,76 @@ void draw_discovery(AppState& state) {
     } else {
       ImGui::TextUnformatted("Connection failed");
     }
+  }
+}
+
+void draw_audio_tab(AppState& state) {
+  if (state.role == discovery::Role::Slave) {
+    ImGui::Checkbox("Send audio", &state.audio_send_enabled);
+    ImGui::Spacing();
+
+    ImGui::TextUnformatted("Sample rate:");
+    if (ImGui::RadioButton("48kHz", state.audio_desired_format.sample_rate == 48000))
+      state.audio_desired_format.sample_rate = 48000;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("24kHz", state.audio_desired_format.sample_rate == 24000))
+      state.audio_desired_format.sample_rate = 24000;
+
+    ImGui::TextUnformatted("Bit depth:");
+    if (ImGui::RadioButton("16-bit", state.audio_desired_format.bit_depth == 16)) state.audio_desired_format.bit_depth = 16;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("8-bit", state.audio_desired_format.bit_depth == 8)) state.audio_desired_format.bit_depth = 8;
+
+    ImGui::Spacing();
+    if (state.audio_active) {
+      ImGui::Text("Currently sending: %u Hz, %u-bit", state.audio_active_format.sample_rate,
+                  state.audio_active_format.bit_depth);
+    } else {
+      ImGui::TextUnformatted("Not currently sending (not connected, or disabled above).");
+    }
+  } else {
+    if (state.tcp_server && state.tcp_server->status().state == discovery::ConnectionState::Connected &&
+        state.tcp_server->status().peer_audio_sample_rate != 0) {
+      const discovery::ConnectionInfo info = state.tcp_server->status();
+      ImGui::Text("Receiving: %u Hz, %u-bit", info.peer_audio_sample_rate, info.peer_audio_bit_depth);
+    } else {
+      ImGui::TextUnformatted("No audio (Slave not connected, or has audio disabled).");
+    }
+  }
+}
+
+}  // namespace
+
+void draw_role_select(AppState& state) {
+  begin_fullscreen_window();
+  ImGui::Text("This machine: %s", state.hostname.c_str());
+  ImGui::Text("Choose how this device should act on the LAN:");
+  ImGui::Spacing();
+  if (ImGui::Button("I am the Master", ImVec2(220, 40))) start_discovery(state, discovery::Role::Master);
+  if (ImGui::Button("I am a Slave", ImVec2(220, 40))) start_discovery(state, discovery::Role::Slave);
+  ImGui::Spacing();
+  if (ImGui::Button("Manage known devices")) {
+    state.previous_screen = Screen::RoleSelect;
+    state.screen = Screen::ManageDevices;
+  }
+  ImGui::End();
+}
+
+void draw_discovery(AppState& state) {
+  begin_fullscreen_window();
+  ImGui::Text("Role: %s  |  Host: %s", role_label(state.role), state.hostname.c_str());
+  ImGui::Separator();
+
+  if (ImGui::BeginTabBar("discovery_tabs")) {
+    if (ImGui::BeginTabItem("Connection")) {
+      draw_connection_tab(state);
+      ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Audio")) {
+      draw_audio_tab(state);
+      ImGui::EndTabItem();
+    }
+    ImGui::EndTabBar();
   }
 
   ImGui::Spacing();

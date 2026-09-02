@@ -19,10 +19,17 @@ discovery::Key32 derive_audio_key(const discovery::Key32& transport_key);
 // to) specifically because UDP doesn't preserve order, so the receiver
 // needs it before it can even attempt decryption keyed on the matching
 // nonce.
-std::vector<uint8_t> encode_frame(const discovery::Key32& key, uint32_t seq, const int16_t* samples, size_t count);
+//
+// Carries raw bytes, not samples of any particular width -- this module
+// doesn't interpret the audio format at all (that's capture.cpp/
+// playback.cpp's job, talking to miniaudio); it just moves whatever bytes
+// one side's capture device produced to the other side's playback device.
+// Both sides have to already agree on the format out of band (the
+// discovery layer's kMsgAudioFormat) for the bytes to mean anything.
+std::vector<uint8_t> encode_frame(const discovery::Key32& key, uint32_t seq, const uint8_t* data, size_t len);
 
 // Returns false on a malformed packet or AEAD authentication failure.
 bool decode_frame(const discovery::Key32& key, const uint8_t* data, size_t len, uint32_t& seq,
-                   std::vector<int16_t>& samples_out);
+                   std::vector<uint8_t>& data_out);
 
 }  // namespace nockvm::audio

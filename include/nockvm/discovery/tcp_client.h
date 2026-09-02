@@ -9,6 +9,8 @@
 
 namespace nockvm::discovery {
 
+class SecureChannel;
+
 // Connects out to a single TCP server. On an unknown peer, runs TOFU
 // pairing (fingerprint display, waits for the Master's approve/reject
 // decision) before proceeding; on an already-trusted peer, skips straight
@@ -26,6 +28,16 @@ public:
 
   ConnectionInfo status() const;
 
+  // Called from the UI/audio thread to send a message on the active
+  // connection (e.g. kMsgAudioFormat, when the user changes the audio
+  // quality setting). No-op (returns false) if there is no connection
+  // currently in the Connected state. Mirrors TcpServer::send_input's
+  // concurrency reasoning: send/receive use independent SecureChannel
+  // nonce counters, and this is the only caller of send(), so there's no
+  // send/send race beyond send_mutex_ serializing this method against
+  // itself.
+  bool send_message(uint8_t msg_type, const uint8_t* payload, size_t len);
+
 private:
   void run();
 
@@ -38,6 +50,8 @@ private:
   std::thread thread_;
   mutable std::mutex status_mutex_;
   ConnectionInfo status_;
+  mutable std::mutex send_mutex_;
+  SecureChannel* active_channel_ = nullptr;  // set while Connected, guarded by send_mutex_
 };
 
 }  // namespace nockvm::discovery

@@ -85,6 +85,12 @@ ConnectionInfo TcpClient::status() const {
   return status_;
 }
 
+bool TcpClient::send_message(uint8_t msg_type, const uint8_t* payload, size_t len) {
+  std::lock_guard<std::mutex> lock(send_mutex_);
+  if (!active_channel_) return false;
+  return active_channel_->send(msg_type, payload, len);
+}
+
 void TcpClient::run() {
   {
     std::lock_guard<std::mutex> lock(status_mutex_);
@@ -193,6 +199,10 @@ void TcpClient::run() {
   }
 
   SecureChannel channel(sock, ik.keys);
+  {
+    std::lock_guard<std::mutex> lock(send_mutex_);
+    active_channel_ = &channel;
+  }
   const std::vector<uint8_t> monitor_payload = encode_monitor_list(display::get_local_monitors());
   channel.send(kMsgMonitorList, monitor_payload.data(), monitor_payload.size());
 
@@ -215,6 +225,10 @@ void TcpClient::run() {
     // Timeout/Error: keep polling running_.
   }
 
+  {
+    std::lock_guard<std::mutex> lock(send_mutex_);
+    active_channel_ = nullptr;
+  }
   close_socket(sock);
   std::lock_guard<std::mutex> lock(status_mutex_);
   status_.state = ConnectionState::Failed;

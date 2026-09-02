@@ -22,6 +22,10 @@ struct ConnectionInfo {
   // can independently derive the same audio::derive_audio_key() from it.
   Key32 audio_key{};
   uint16_t peer_audio_port = 0;  // Slave-side only: the UDP port Master reported via kMsgAudioPort
+  // Master-side only: the format Slave last reported via kMsgAudioFormat
+  // (0 sample_rate means "not reported yet, or Slave isn't sending audio").
+  uint32_t peer_audio_sample_rate = 0;
+  uint8_t peer_audio_bit_depth = 16;
 };
 
 }  // namespace nockvm::discovery

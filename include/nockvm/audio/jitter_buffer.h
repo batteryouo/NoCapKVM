@@ -19,17 +19,17 @@ public:
   // Inserts a decoded frame at the given sequence number. Out-of-order and
   // duplicate-safe; silently dropped if it arrives after playback has
   // already moved past that sequence number.
-  void push(uint32_t seq, std::vector<int16_t> frame);
+  void push(uint32_t seq, std::vector<uint8_t> frame);
 
   // Returns the next frame to play once enough have buffered up
   // (target_depth reached); nullopt means "not ready yet" or "that
   // sequence number never arrived" — caller should play silence either
   // way rather than blocking.
-  std::optional<std::vector<int16_t>> pop();
+  std::optional<std::vector<uint8_t>> pop();
 
 private:
   std::mutex mutex_;
-  std::map<uint32_t, std::vector<int16_t>> buffer_;
+  std::map<uint32_t, std::vector<uint8_t>> buffer_;
   size_t target_depth_;
   bool started_ = false;
   uint32_t next_seq_ = 0;

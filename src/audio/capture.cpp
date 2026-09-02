@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <cctype>
 #include <string>
-#include "nockvm/audio/format.h"
 #include <miniaudio.h>
 
 namespace nockvm::audio {
@@ -15,12 +14,15 @@ namespace {
 struct CaptureImpl {
   ma_context context;
   ma_device device;
-  std::function<void(const int16_t*, unsigned int)> on_frame;
+  std::function<void(const uint8_t*, size_t)> on_frame;
 };
+
+ma_format to_ma_format(uint8_t bit_depth) { return bit_depth == 8 ? ma_format_u8 : ma_format_s16; }
 
 void data_callback(ma_device* device, void* /*output*/, const void* input, ma_uint32 frame_count) {
   auto* impl = static_cast<CaptureImpl*>(device->pUserData);
-  impl->on_frame(static_cast<const int16_t*>(input), frame_count);
+  const size_t bytes = static_cast<size_t>(frame_count) * ma_get_bytes_per_frame(device->capture.format, device->capture.channels);
+  impl->on_frame(static_cast<const uint8_t*>(input), bytes);
 }
 
 #ifdef _WIN32
@@ -58,7 +60,7 @@ bool select_device_id(ma_context& context, ma_device_id& out_id) {
 AudioCapture::AudioCapture() = default;
 AudioCapture::~AudioCapture() { stop(); }
 
-bool AudioCapture::start(std::function<void(const int16_t*, unsigned int)> on_frame) {
+bool AudioCapture::start(const AudioFormat& format, std::function<void(const uint8_t*, size_t)> on_frame) {
   auto* impl = new CaptureImpl();
   impl->on_frame = std::move(on_frame);
 
@@ -68,10 +70,10 @@ bool AudioCapture::start(std::function<void(const int16_t*, unsigned int)> on_fr
   }
 
   ma_device_config config = ma_device_config_init(kDeviceType);
-  config.capture.format = ma_format_s16;
+  config.capture.format = to_ma_format(format.bit_depth);
   config.capture.channels = kChannels;
-  config.sampleRate = kSampleRate;
-  config.periodSizeInFrames = kFrameCount;
+  config.sampleRate = format.sample_rate;
+  config.periodSizeInFrames = format.frame_count();
   config.dataCallback = data_callback;
   config.pUserData = impl;
 

@@ -212,11 +212,21 @@ void TcpServer::run() {
       const auto result =
           channel.receive(msg_type, payload, std::chrono::steady_clock::now() + std::chrono::milliseconds(200));
       if (result == SecureChannel::RecvResult::Closed) break;
-      if (result == SecureChannel::RecvResult::Ok && msg_type == kMsgMonitorList) {
-        std::vector<display::MonitorInfo> monitors;
-        if (decode_monitor_list(payload.data(), payload.size(), monitors)) {
-          std::lock_guard<std::mutex> lock(status_mutex_);
-          status_.peer_monitors = std::move(monitors);
+      if (result == SecureChannel::RecvResult::Ok) {
+        if (msg_type == kMsgMonitorList) {
+          std::vector<display::MonitorInfo> monitors;
+          if (decode_monitor_list(payload.data(), payload.size(), monitors)) {
+            std::lock_guard<std::mutex> lock(status_mutex_);
+            status_.peer_monitors = std::move(monitors);
+          }
+        } else if (msg_type == kMsgAudioFormat) {
+          uint32_t sample_rate;
+          uint8_t bit_depth;
+          if (decode_audio_format(payload.data(), payload.size(), sample_rate, bit_depth)) {
+            std::lock_guard<std::mutex> lock(status_mutex_);
+            status_.peer_audio_sample_rate = sample_rate;
+            status_.peer_audio_bit_depth = bit_depth;
+          }
         }
       }
       // Timeout/Error: keep polling running_/disconnect_requested_.
