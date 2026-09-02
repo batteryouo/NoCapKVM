@@ -63,5 +63,31 @@ int main() {
     assert(f0.has_value() && (*f0)[0] == 11);
   }
 
+  // After a sustained stall (next_seq_ racing far ahead of anything
+  // arriving -- a burst of loss, or clock drift over a long session), the
+  // buffer resyncs instead of rejecting every future packet forever: a
+  // packet whose sequence number would have looked "long past" under the
+  // old position still gets accepted and played once resync kicks in.
+  {
+    JitterBuffer buf(1);
+    buf.push(0, {10});
+    assert(buf.pop().has_value());  // next_seq_ is now 1
+
+    bool resynced = false;
+    for (int i = 0; i < 100; ++i) {
+      if (!buf.pop().has_value()) continue;
+      resynced = true;
+      break;
+    }
+    assert(!resynced);  // nothing was ever pushed in this loop -- always silence
+
+    // Long before this session's real sequence numbers would ever repeat,
+    // but well below whatever next_seq_ raced up to during the stall --
+    // exactly the case that used to be rejected forever.
+    buf.push(5, {50});
+    const auto f = buf.pop();
+    assert(f.has_value() && (*f)[0] == 50);
+  }
+
   return 0;
 }
