@@ -47,4 +47,27 @@ struct PlacementDecision {
 PlacementDecision decide_placement(ClusterBounds master_bounds, float peer_width, float peer_height,
                                     float drag_origin_x, float drag_origin_y);
 
+struct BoundaryCheck {
+  bool crossed = false;         // true if (x, y) fell outside bounds
+  Direction direction;          // which edge of bounds was exceeded (only meaningful if crossed)
+  int32_t clamped_x = 0, clamped_y = 0;  // (x, y) clamped back into bounds
+  int32_t perp_pos = 0;         // coordinate along the perpendicular axis at the crossing point,
+                                 // ready to feed into compute_crossing's master_perp_pos
+};
+
+// Clamps (x, y) into bounds. If either coordinate fell outside, reports the
+// exceeded edge (X takes priority over Y if both did, which in practice
+// only happens diagonally past a corner) plus the clamped position and the
+// perpendicular-axis coordinate for the next compute_crossing call.
+BoundaryCheck check_boundary(ClusterBounds bounds, int32_t x, int32_t y);
+
+// Master stores entries as "peer sits in `direction` of Master, offset by
+// `offset`" (see ArrangementEntry). Crossing back the other way needs the
+// inverse relationship — "Master sits in opposite(direction) of peer,
+// offset by some offset'" — to feed into compute_crossing a second time,
+// this time with peer's own monitors as the reference and Master's monitors
+// as the "peer_monitors" argument. Derived deterministically from the
+// stored entry plus both machines' cluster bounds.
+ArrangementEntry invert_entry(ArrangementEntry entry, ClusterBounds master_bounds, ClusterBounds peer_bounds);
+
 }  // namespace nockvm::topology

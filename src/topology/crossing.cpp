@@ -65,4 +65,55 @@ PlacementDecision decide_placement(ClusterBounds master_bounds, float peer_width
   return decision;
 }
 
+BoundaryCheck check_boundary(ClusterBounds bounds, int32_t x, int32_t y) {
+  BoundaryCheck result;
+  result.clamped_x = clamp(x, bounds.min_x, bounds.max_x);
+  result.clamped_y = clamp(y, bounds.min_y, bounds.max_y);
+
+  if (x < bounds.min_x) {
+    result.crossed = true;
+    result.direction = Direction::Left;
+    result.perp_pos = result.clamped_y;
+  } else if (x > bounds.max_x) {
+    result.crossed = true;
+    result.direction = Direction::Right;
+    result.perp_pos = result.clamped_y;
+  } else if (y < bounds.min_y) {
+    result.crossed = true;
+    result.direction = Direction::Up;
+    result.perp_pos = result.clamped_x;
+  } else if (y > bounds.max_y) {
+    result.crossed = true;
+    result.direction = Direction::Down;
+    result.perp_pos = result.clamped_x;
+  }
+
+  return result;
+}
+
+namespace {
+
+Direction opposite(Direction d) {
+  switch (d) {
+    case Direction::Left: return Direction::Right;
+    case Direction::Right: return Direction::Left;
+    case Direction::Up: return Direction::Down;
+    default: return Direction::Up;
+  }
+}
+
+}  // namespace
+
+ArrangementEntry invert_entry(ArrangementEntry entry, ClusterBounds master_bounds, ClusterBounds peer_bounds) {
+  ArrangementEntry inv;
+  inv.device_id = entry.device_id;
+  inv.direction = opposite(entry.direction);
+  if (entry.direction == Direction::Left || entry.direction == Direction::Right) {
+    inv.offset = peer_bounds.min_y + master_bounds.min_y - entry.offset;
+  } else {
+    inv.offset = peer_bounds.min_x + master_bounds.min_x - entry.offset;
+  }
+  return inv;
+}
+
 }  // namespace nockvm::topology

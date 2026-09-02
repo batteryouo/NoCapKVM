@@ -167,6 +167,8 @@ void draw_discovery(AppState& state) {
     } else if (info.state == discovery::ConnectionState::Connected) {
       ImGui::Text("Connected: %s", resolve_peer_name(state, info.peer_device_id, info.peer_ip).c_str());
       if (ImGui::Button("Disconnect")) state.tcp_server->disconnect_current();
+      ImGui::Text("Input control: %s", state.input_owned_by_master ? "Master" : "Slave");
+      ImGui::TextUnformatted("(Ctrl+Alt+Shift+Esc forces control back to Master)");
       ImGui::Spacing();
       ImGui::TextUnformatted("Slave's displays:");
       draw_monitor_table("slave_monitors", info.peer_monitors);

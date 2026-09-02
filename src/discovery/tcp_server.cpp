@@ -69,6 +69,12 @@ void TcpServer::approve_pairing() { pairing_decision_ = PairingDecision::Approve
 void TcpServer::reject_pairing() { pairing_decision_ = PairingDecision::Rejected; }
 void TcpServer::disconnect_current() { disconnect_requested_ = true; }
 
+bool TcpServer::send_input(uint8_t msg_type, const uint8_t* payload, size_t len) {
+  std::lock_guard<std::mutex> lock(send_mutex_);
+  if (!active_channel_) return false;
+  return active_channel_->send(msg_type, payload, len);
+}
+
 void TcpServer::run() {
   while (running_.load()) {
     if (!wait_readable(listen_socket_, std::chrono::milliseconds(200))) continue;
@@ -169,6 +175,10 @@ void TcpServer::run() {
     }
 
     SecureChannel channel(client, ik.keys);
+    {
+      std::lock_guard<std::mutex> lock(send_mutex_);
+      active_channel_ = &channel;
+    }
     disconnect_requested_ = false;
     while (running_.load() && !disconnect_requested_.load()) {
       uint8_t msg_type;
@@ -186,6 +196,10 @@ void TcpServer::run() {
       // Timeout/Error: keep polling running_/disconnect_requested_.
     }
 
+    {
+      std::lock_guard<std::mutex> lock(send_mutex_);
+      active_channel_ = nullptr;
+    }
     close_socket(client);
     std::lock_guard<std::mutex> lock(status_mutex_);
     status_ = ConnectionInfo{};

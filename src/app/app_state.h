@@ -9,6 +9,7 @@
 #include "nockvm/discovery/tcp_server.h"
 #include "nockvm/discovery/types.h"
 #include "nockvm/display/monitor_info.h"
+#include "nockvm/input/hook.h"
 #include "nockvm/topology/arrangement.h"
 
 namespace nockvm::app {
@@ -28,6 +29,13 @@ struct AppState {
   std::unique_ptr<discovery::Listener> listener;
   std::unique_ptr<discovery::TcpServer> tcp_server;  // Master only
   std::unique_ptr<discovery::TcpClient> tcp_client;  // Slave only, set on Connect click
+
+  // Master-only input capture/handoff state (brief §3.2), driven once per
+  // frame by pump_input() in input_pump.cpp.
+  input::InputHook input_hook;
+  bool input_hook_active = false;    // whether install() has been called (tracks the Connected transition)
+  bool input_owned_by_master = true;
+  int32_t input_logical_x = 0, input_logical_y = 0;  // current owner's own local coordinate space
 };
 
 }  // namespace nockvm::app

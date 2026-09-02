@@ -27,7 +27,7 @@ add_library(nockvm_discovery STATIC
   monitor_protocol.cpp
 )
 target_include_directories(nockvm_discovery PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(nockvm_discovery PUBLIC nockvm_common nockvm_display Threads::Threads sodium)
+target_link_libraries(nockvm_discovery PUBLIC nockvm_common nockvm_display nockvm_input Threads::Threads sodium)
 
 if(WIN32)
   target_link_libraries(nockvm_discovery PUBLIC ws2_32 iphlpapi)
