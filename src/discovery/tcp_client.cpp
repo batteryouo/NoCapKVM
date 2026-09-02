@@ -115,7 +115,7 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
   addr.sin_port = htons(peer_port_);
   inet_pton(AF_INET, peer_ip_.c_str(), &addr.sin_addr);
 
-  if (connect(sock, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0) {
+  if (!connect_with_timeout(sock, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr), kHandshakeTimeout)) {
     close_socket(sock);
     std::lock_guard<std::mutex> lock(status_mutex_);
     status_.state = ConnectionState::Failed;
