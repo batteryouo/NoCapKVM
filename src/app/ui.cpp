@@ -112,6 +112,14 @@ void draw_monitor_table(const char* table_id, const std::vector<display::Monitor
 void draw_connection_tab(AppState& state) {
   const discovery::Role wanted = state.role == discovery::Role::Master ? discovery::Role::Slave : discovery::Role::Master;
   const bool is_slave = state.role == discovery::Role::Slave;
+
+  if (is_slave) {
+    ImGui::InputInt("Auto-reconnect timeout (s)", &state.reconnect_timeout_s);
+    state.reconnect_timeout_s = std::max(1, state.reconnect_timeout_s);
+    ImGui::TextUnformatted("(Give up reconnecting after this many seconds of continuous disconnection.)");
+    ImGui::Spacing();
+  }
+
   ImGui::Text("Discovered %s(s):", role_label(wanted));
 
   const int column_count = is_slave ? 5 : 4;
@@ -141,8 +149,9 @@ void draw_connection_tab(AppState& state) {
         ImGui::PushID(static_cast<int>(peer.device_id));
         ImGui::BeginDisabled(peer.tcp_port == 0);
         if (ImGui::Button("Connect")) {
-          state.tcp_client = std::make_unique<discovery::TcpClient>(state.device_id, peer.ip_address, peer.tcp_port,
-                                                                      state.known_peers);
+          state.tcp_client = std::make_unique<discovery::TcpClient>(
+              state.device_id, peer.ip_address, peer.tcp_port, state.known_peers,
+              std::chrono::seconds(state.reconnect_timeout_s));
           state.tcp_client->start();
         }
         ImGui::EndDisabled();

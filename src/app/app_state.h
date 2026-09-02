@@ -33,6 +33,11 @@ struct AppState {
   std::unique_ptr<discovery::Listener> listener;
   std::unique_ptr<discovery::TcpServer> tcp_server;  // Master only
   std::unique_ptr<discovery::TcpClient> tcp_client;  // Slave only, set on Connect click
+  // Slave-only, UI-controlled (Discovery screen's Connection tab): how long
+  // TcpClient's auto-reconnect loop keeps retrying a continuous stretch of
+  // disconnection before giving up, so it doesn't retry forever in the
+  // background once the Master is genuinely gone.
+  int reconnect_timeout_s = 10;
 
   // Master-only input capture/handoff state (brief §3.2), driven once per
   // frame by pump_input() in input_pump.cpp.

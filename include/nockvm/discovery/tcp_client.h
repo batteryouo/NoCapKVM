@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -18,7 +19,13 @@ class SecureChannel;
 // or stop() is called.
 class TcpClient {
 public:
-  TcpClient(uint64_t own_device_id, std::string peer_ip, uint16_t peer_port, KnownPeers& known_peers);
+  // give_up_after bounds how long the auto-reconnect loop (see run()) will
+  // keep retrying a continuous stretch of disconnection before stopping for
+  // good -- user-configurable (Discovery screen's Connection tab) so it can
+  // be tuned per environment rather than retrying forever in the background
+  // once the peer is genuinely gone.
+  TcpClient(uint64_t own_device_id, std::string peer_ip, uint16_t peer_port, KnownPeers& known_peers,
+            std::chrono::milliseconds give_up_after = std::chrono::seconds(10));
   ~TcpClient();
   TcpClient(const TcpClient&) = delete;
   TcpClient& operator=(const TcpClient&) = delete;
@@ -54,6 +61,7 @@ private:
   KnownPeers& known_peers_;
   std::string peer_ip_;
   uint16_t peer_port_;
+  std::chrono::milliseconds give_up_after_;
   std::atomic<bool> running_{false};
   std::thread thread_;
   mutable std::mutex status_mutex_;

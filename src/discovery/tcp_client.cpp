@@ -61,12 +61,14 @@ void dispatch_input_message(uint8_t msg_type, const std::vector<uint8_t>& payloa
 
 }  // namespace
 
-TcpClient::TcpClient(uint64_t own_device_id, std::string peer_ip, uint16_t peer_port, KnownPeers& known_peers)
+TcpClient::TcpClient(uint64_t own_device_id, std::string peer_ip, uint16_t peer_port, KnownPeers& known_peers,
+                     std::chrono::milliseconds give_up_after)
     : own_device_id_(own_device_id),
       own_static_(get_or_create_static_keypair()),
       known_peers_(known_peers),
       peer_ip_(std::move(peer_ip)),
-      peer_port_(peer_port) {}
+      peer_port_(peer_port),
+      give_up_after_(give_up_after) {}
 
 TcpClient::~TcpClient() { stop(); }
 
@@ -266,21 +268,40 @@ void TcpClient::run() {
   constexpr auto kBackoffPollInterval = std::chrono::milliseconds(200);
 
   auto backoff = kInitialBackoff;
+  // Bounds one continuous stretch of "not connected" -- reset every time an
+  // attempt actually reaches Connected (see below), so it never penalizes a
+  // peer that's been up and down repeatedly over a long session, only a
+  // single stretch of unreachability longer than give_up_after_.
+  auto give_up_deadline = std::chrono::steady_clock::now() + give_up_after_;
+
   while (running_.load()) {
     const AttemptOutcome outcome = run_once();
     if (outcome == AttemptOutcome::kGiveUp || !running_.load()) break;
 
+    if (outcome == AttemptOutcome::kRetryFast) {
+      give_up_deadline = std::chrono::steady_clock::now() + give_up_after_;
+      backoff = kInitialBackoff;
+    } else if (std::chrono::steady_clock::now() >= give_up_deadline) {
+      break;
+    }
+
     // Sleep in short slices rather than one long sleep_for(backoff) so
     // stop() (triggered by the user's own Disconnect button) doesn't have
     // to wait out the full backoff before this thread notices and exits.
+    // Also re-checked against give_up_deadline each slice so a long backoff
+    // wait doesn't overshoot the configured timeout by much.
     auto remaining = backoff;
     while (remaining > std::chrono::milliseconds(0) && running_.load()) {
-      const auto step = std::min(remaining, kBackoffPollInterval);
+      const auto now = std::chrono::steady_clock::now();
+      if (now >= give_up_deadline) break;
+      const auto step = std::min({remaining, kBackoffPollInterval,
+                                   std::chrono::duration_cast<std::chrono::milliseconds>(give_up_deadline - now)});
       std::this_thread::sleep_for(step);
       remaining -= step;
     }
 
-    backoff = outcome == AttemptOutcome::kRetryFast ? kInitialBackoff : std::min(backoff * 2, kMaxBackoff);
+    if (std::chrono::steady_clock::now() >= give_up_deadline) break;
+    if (outcome != AttemptOutcome::kRetryFast) backoff = std::min(backoff * 2, kMaxBackoff);
   }
 }
 
