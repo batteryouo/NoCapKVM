@@ -55,12 +55,22 @@ void handle_master_owned(AppState& state, const discovery::ConnectionInfo& info,
     const topology::CrossingResult cross =
         topology::compute_crossing(info.peer_monitors, arrangement->direction, arrangement->offset, bc.perp_pos);
     if (cross.has_target) {
+      // One frame's delta is batched (everything since the last poll()), so
+      // a fast swipe can land well past the boundary before this check even
+      // runs. Carry that overshoot into the peer's space along the axis
+      // being crossed, instead of discarding it and always landing exactly
+      // on the entry edge regardless of how hard the mouse was pushed --
+      // real multi-monitor motion doesn't lose momentum at the seam either.
+      const bool horizontal = bc.direction == topology::Direction::Left || bc.direction == topology::Direction::Right;
+      const int32_t overshoot =
+          horizontal ? state.input_logical_x - bc.clamped_x : state.input_logical_y - bc.clamped_y;
+
       state.input_owned_by_master = false;
-      state.input_logical_x = cross.x;
-      state.input_logical_y = cross.y;
+      state.input_logical_x = cross.x + (horizontal ? overshoot : 0);
+      state.input_logical_y = cross.y + (horizontal ? 0 : overshoot);
       state.input_just_handed_off = true;
       state.input_hook.suppress();
-      const auto payload = input::encode_mouse_absolute(cross.x, cross.y);
+      const auto payload = input::encode_mouse_absolute(state.input_logical_x, state.input_logical_y);
       state.tcp_server->send_input(input::kMsgMouseAbsolute, payload.data(), payload.size());
       send_modifier_sync(state);
       return;
@@ -126,11 +136,17 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
       topology::compute_crossing(state.local_monitors, inv.direction, inv.offset, bc.perp_pos);
   if (!cross.has_target) return;
 
+  // Carry the overshoot already computed above (the margin check) into
+  // Master's space along the axis being crossed, for the same reason as the
+  // outbound crossing in handle_master_owned -- don't discard real momentum.
+  const bool horizontal = bc.direction == topology::Direction::Left || bc.direction == topology::Direction::Right;
+  const int32_t overshoot = horizontal ? overshoot_x : overshoot_y;
+
   state.input_owned_by_master = true;
-  state.input_logical_x = cross.x;
-  state.input_logical_y = cross.y;
+  state.input_logical_x = cross.x + (horizontal ? overshoot : 0);
+  state.input_logical_y = cross.y + (horizontal ? 0 : overshoot);
   state.input_just_handed_off = true;
-  state.input_hook.resume(cross.x, cross.y);
+  state.input_hook.resume(state.input_logical_x, state.input_logical_y);
   send_modifier_sync(state);
 }
 
