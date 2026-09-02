@@ -42,6 +42,7 @@ struct AppState {
   // directions), consumed (and cleared) by the very next frame's crossing
   // check so a stray post-handoff jitter can't immediately bounce it back.
   bool input_just_handed_off = false;
+  std::vector<uint32_t> input_held_vks;  // currently-held virtual-key codes, for the on-screen key monitor
 };
 
 }  // namespace nockvm::app
