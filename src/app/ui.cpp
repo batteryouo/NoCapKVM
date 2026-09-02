@@ -39,7 +39,8 @@ void start_discovery(AppState& state, discovery::Role role) {
 
   uint16_t tcp_port = 0;
   if (role == discovery::Role::Master) {
-    state.tcp_server = std::make_unique<discovery::TcpServer>(state.device_id, state.known_peers);
+    state.tcp_server = std::make_unique<discovery::TcpServer>(state.device_id, state.known_peers,
+                                                                 std::chrono::seconds(state.connection_timeout_s));
     state.tcp_server->start();
     tcp_port = state.tcp_server->port();
   }
@@ -113,12 +114,13 @@ void draw_connection_tab(AppState& state) {
   const discovery::Role wanted = state.role == discovery::Role::Master ? discovery::Role::Slave : discovery::Role::Master;
   const bool is_slave = state.role == discovery::Role::Slave;
 
-  if (is_slave) {
-    ImGui::InputInt("Auto-reconnect timeout (s)", &state.reconnect_timeout_s);
-    state.reconnect_timeout_s = std::max(1, state.reconnect_timeout_s);
-    ImGui::TextUnformatted("(Give up reconnecting after this many seconds of continuous disconnection.)");
-    ImGui::Spacing();
-  }
+  ImGui::InputInt("Connection timeout (s)", &state.connection_timeout_s);
+  state.connection_timeout_s = std::max(1, state.connection_timeout_s);
+  ImGui::TextUnformatted(
+      is_slave ? "(Give up auto-reconnecting after this many seconds of continuous disconnection.)"
+               : "(Force-disconnect a silent Slave after this many seconds with no traffic.)");
+  if (state.tcp_server) state.tcp_server->set_heartbeat_timeout(std::chrono::seconds(state.connection_timeout_s));
+  ImGui::Spacing();
 
   ImGui::Text("Discovered %s(s):", role_label(wanted));
 
@@ -151,7 +153,7 @@ void draw_connection_tab(AppState& state) {
         if (ImGui::Button("Connect")) {
           state.tcp_client = std::make_unique<discovery::TcpClient>(
               state.device_id, peer.ip_address, peer.tcp_port, state.known_peers,
-              std::chrono::seconds(state.reconnect_timeout_s));
+              std::chrono::seconds(state.connection_timeout_s));
           state.tcp_client->start();
         }
         ImGui::EndDisabled();

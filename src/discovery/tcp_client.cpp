@@ -22,6 +22,10 @@
 namespace nockvm::discovery {
 namespace {
 constexpr auto kHandshakeTimeout = std::chrono::seconds(3);
+// How often a heartbeat is sent during an otherwise-idle connection. Well
+// under any sane give_up_after_ so a handful of heartbeats can go missing
+// before the connection is actually declared dead.
+constexpr auto kHeartbeatInterval = std::chrono::milliseconds(1000);
 
 // This machine is always the Slave role when it's the TcpClient side, so
 // every input message received here is meant to be injected locally.
@@ -216,11 +220,14 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
   const std::vector<uint8_t> monitor_payload = encode_monitor_list(display::get_local_monitors());
   channel.send(kMsgMonitorList, monitor_payload.data(), monitor_payload.size());
 
+  auto last_heard = std::chrono::steady_clock::now();
+  auto last_heartbeat_sent = std::chrono::steady_clock::now();
   while (running_.load()) {
     uint8_t msg_type;
     std::vector<uint8_t> payload;
     const auto result = channel.receive(msg_type, payload, std::chrono::steady_clock::now() + std::chrono::milliseconds(200));
     if (result == SecureChannel::RecvResult::Closed) break;
+    if (result != SecureChannel::RecvResult::Timeout) last_heard = std::chrono::steady_clock::now();
     if (result == SecureChannel::RecvResult::Ok) {
       if (msg_type == kMsgAudioPort) {
         uint16_t audio_port = 0;
@@ -240,11 +247,19 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
           status_.master_audio_control_received = true;
           status_.master_audio_control_seq++;
         }
-      } else {
+      } else if (msg_type != kMsgHeartbeat) {
         dispatch_input_message(msg_type, payload);
       }
     }
     // Timeout/Error: keep polling running_.
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last_heard >= give_up_after_) break;  // silent peer -- same as a closed connection
+    if (now - last_heartbeat_sent >= kHeartbeatInterval) {
+      uint8_t no_payload = 0;
+      channel.send(kMsgHeartbeat, &no_payload, 0);
+      last_heartbeat_sent = now;
+    }
   }
 
   {
