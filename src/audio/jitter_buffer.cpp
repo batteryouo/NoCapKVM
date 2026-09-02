@@ -15,13 +15,13 @@ constexpr size_t kMaxConsecutiveMisses = 40;
 
 JitterBuffer::JitterBuffer(size_t target_depth) : target_depth_(target_depth) {}
 
-void JitterBuffer::push(uint32_t seq, std::vector<int16_t> frame) {
+void JitterBuffer::push(uint32_t seq, std::vector<uint8_t> frame) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (started_ && seq < next_seq_) return;  // too late to matter, drop
   buffer_[seq] = std::move(frame);
 }
 
-std::optional<std::vector<int16_t>> JitterBuffer::pop() {
+std::optional<std::vector<uint8_t>> JitterBuffer::pop() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!started_) {
     if (buffer_.size() < target_depth_) return std::nullopt;
@@ -50,7 +50,7 @@ std::optional<std::vector<int16_t>> JitterBuffer::pop() {
   }
 
   consecutive_misses_ = 0;
-  std::vector<int16_t> frame = std::move(it->second);
+  std::vector<uint8_t> frame = std::move(it->second);
   buffer_.erase(it);
   return frame;
 }

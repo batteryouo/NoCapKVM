@@ -49,7 +49,7 @@ int main() {
     JitterBuffer buf(1);
     buf.push(0, {10});
     assert(buf.pop().has_value());  // starts, plays seq 0, next_seq_ is now 1
-    buf.push(0, {999});             // too late
+    buf.push(0, {200});             // too late
     assert(!buf.pop().has_value());  // seq 1 still never arrived
   }
 

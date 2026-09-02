@@ -20,13 +20,13 @@ class AudioChannel {
 public:
   AudioChannel(socket_t sock, discovery::Key32 key);
 
-  bool send_to(const sockaddr_in& dest, const int16_t* samples, size_t count);
+  bool send_to(const sockaddr_in& dest, const uint8_t* data, size_t len);
 
   // Non-blocking. False if nothing is available right now, or if the
   // packet failed to decode (malformed, wrong key, or a genuine AEAD
   // authentication failure) -- deliberately not distinguished, since
   // either way there's nothing usable to hand back.
-  bool receive_nonblocking(uint32_t& seq, std::vector<int16_t>& samples_out);
+  bool receive_nonblocking(uint32_t& seq, std::vector<uint8_t>& data_out);
 
 private:
   socket_t sock_;

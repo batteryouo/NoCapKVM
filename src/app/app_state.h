@@ -54,9 +54,19 @@ struct AppState {
   bool audio_active = false;  // tracks the Connected transition, same idea as input_hook_active
   std::unique_ptr<audio::AudioPlayback> audio_playback;      // Master only
   std::unique_ptr<audio::AudioChannel> audio_recv_channel;   // Master only, wraps tcp_server's audio_socket()
+  audio::AudioFormat audio_master_active_format;  // Master only: what audio_playback is currently configured for
   std::unique_ptr<audio::AudioCapture> audio_capture;        // Slave only
   std::unique_ptr<audio::AudioChannel> audio_send_channel;   // Slave only
   socket_t audio_send_socket = kInvalidSocket;                // Slave only; AudioChannel doesn't own the socket
+  audio::AudioFormat audio_active_format;  // Slave only: what audio_capture is currently running with
+
+  // Slave-only, UI-controlled (Discovery screen's Audio tab): whether to
+  // capture/send at all, and at what quality. pump_audio() compares these
+  // against audio_active_format/audio_active each frame and restarts
+  // capture (re-announcing the new format via kMsgAudioFormat) whenever
+  // they differ from what's currently running.
+  bool audio_send_enabled = true;
+  audio::AudioFormat audio_desired_format;
 };
 
 }  // namespace nockvm::app
