@@ -91,7 +91,7 @@ bool TcpClient::send_message(uint8_t msg_type, const uint8_t* payload, size_t le
   return active_channel_->send(msg_type, payload, len);
 }
 
-void TcpClient::run() {
+TcpClient::AttemptOutcome TcpClient::run_once() {
   {
     std::lock_guard<std::mutex> lock(status_mutex_);
     status_ = ConnectionInfo{ConnectionState::Connecting, 0, peer_ip_, "", {}};
@@ -101,7 +101,7 @@ void TcpClient::run() {
   if (sock == kInvalidSocket) {
     std::lock_guard<std::mutex> lock(status_mutex_);
     status_.state = ConnectionState::Failed;
-    return;
+    return AttemptOutcome::kRetryBackoff;
   }
 
   sockaddr_in addr{};
@@ -113,7 +113,7 @@ void TcpClient::run() {
     close_socket(sock);
     std::lock_guard<std::mutex> lock(status_mutex_);
     status_.state = ConnectionState::Failed;
-    return;
+    return AttemptOutcome::kRetryBackoff;
   }
 
   set_receive_timeout(sock, std::chrono::milliseconds(200));
@@ -127,7 +127,7 @@ void TcpClient::run() {
     close_socket(sock);
     std::lock_guard<std::mutex> lock(status_mutex_);
     status_.state = ConnectionState::Failed;
-    return;
+    return AttemptOutcome::kRetryBackoff;
   }
   const uint64_t peer_device_id = decode_device_id(peer_bytes);
 
@@ -147,7 +147,7 @@ void TcpClient::run() {
     close_socket(sock);
     std::lock_guard<std::mutex> lock(status_mutex_);
     status_.state = ConnectionState::Failed;
-    return;
+    return AttemptOutcome::kRetryBackoff;
   }
   const bool need_pairing = !rs.has_value() || peer_wants_pairing != 0;
 
@@ -160,7 +160,7 @@ void TcpClient::run() {
       close_socket(sock);
       std::lock_guard<std::mutex> lock(status_mutex_);
       status_.state = ConnectionState::Failed;
-      return;
+      return AttemptOutcome::kRetryBackoff;
     }
 
     const std::string fingerprint = compute_fingerprint(own_static_.public_key, peer_raw_pubkey);
@@ -172,11 +172,19 @@ void TcpClient::run() {
     uint8_t decision_byte = kPairingRejected;
     deadline = std::chrono::steady_clock::now() + kPairingApprovalTimeout;
     const bool decision_ok = recv_all(sock, &decision_byte, 1, deadline);
-    if (!decision_ok || decision_byte != kPairingApproved) {
+    if (!decision_ok) {
       close_socket(sock);
       std::lock_guard<std::mutex> lock(status_mutex_);
       status_.state = ConnectionState::Failed;
-      return;
+      return AttemptOutcome::kRetryBackoff;
+    }
+    if (decision_byte != kPairingApproved) {
+      // An explicit rejection, not a transient failure -- retrying would
+      // just re-prompt Master for approval over and over. Give up for good.
+      close_socket(sock);
+      std::lock_guard<std::mutex> lock(status_mutex_);
+      status_.state = ConnectionState::Failed;
+      return AttemptOutcome::kGiveUp;
     }
 
     known_peers_.remember(peer_device_id, peer_raw_pubkey);
@@ -189,7 +197,7 @@ void TcpClient::run() {
     close_socket(sock);
     std::lock_guard<std::mutex> lock(status_mutex_);
     status_.state = ConnectionState::Failed;
-    return;
+    return AttemptOutcome::kRetryBackoff;
   }
 
   {
@@ -242,8 +250,38 @@ void TcpClient::run() {
     active_channel_ = nullptr;
   }
   close_socket(sock);
-  std::lock_guard<std::mutex> lock(status_mutex_);
-  status_.state = ConnectionState::Failed;
+  {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    status_.state = ConnectionState::Failed;
+  }
+  // Reached Connected before dropping -- retry soon rather than backing off,
+  // since this looks like an external event (Master closed, emergency-escape
+  // disconnect, a brief network blip) rather than the peer being unreachable.
+  return AttemptOutcome::kRetryFast;
+}
+
+void TcpClient::run() {
+  constexpr auto kInitialBackoff = std::chrono::milliseconds(1000);
+  constexpr auto kMaxBackoff = std::chrono::milliseconds(10000);
+  constexpr auto kBackoffPollInterval = std::chrono::milliseconds(200);
+
+  auto backoff = kInitialBackoff;
+  while (running_.load()) {
+    const AttemptOutcome outcome = run_once();
+    if (outcome == AttemptOutcome::kGiveUp || !running_.load()) break;
+
+    // Sleep in short slices rather than one long sleep_for(backoff) so
+    // stop() (triggered by the user's own Disconnect button) doesn't have
+    // to wait out the full backoff before this thread notices and exits.
+    auto remaining = backoff;
+    while (remaining > std::chrono::milliseconds(0) && running_.load()) {
+      const auto step = std::min(remaining, kBackoffPollInterval);
+      std::this_thread::sleep_for(step);
+      remaining -= step;
+    }
+
+    backoff = outcome == AttemptOutcome::kRetryFast ? kInitialBackoff : std::min(backoff * 2, kMaxBackoff);
+  }
 }
 
 }  // namespace nockvm::discovery
