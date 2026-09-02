@@ -52,19 +52,24 @@ void InputHook::suppress() {
   // interior, not at any physical edge, regardless of monitor layout.
   const int32_t x = GetSystemMetrics(SM_XVIRTUALSCREEN) + GetSystemMetrics(SM_CXVIRTUALSCREEN) / 2;
   const int32_t y = GetSystemMetrics(SM_YVIRTUALSCREEN) + GetSystemMetrics(SM_CYVIRTUALSCREEN) / 2;
-  SetCursorPos(x, y);
+  // Update anchor/suppress_ BEFORE the SetCursorPos call, not after: if that
+  // call synchronously re-enters mouse_proc (observed intermittently), the
+  // hook must already see the final state, or its own suppressed-branch
+  // recenter logic reads the stale (pre-update) anchor and stomps this
+  // target position right back to wherever suppression last centered.
   anchor_x_ = x;
   anchor_y_ = y;
   suppress_.store(true);
+  SetCursorPos(x, y);
 }
 
 void InputHook::resume() { suppress_.store(false); }
 
 void InputHook::resume(int32_t x, int32_t y) {
-  SetCursorPos(x, y);
   anchor_x_ = x;
   anchor_y_ = y;
   suppress_.store(false);
+  SetCursorPos(x, y);
 }
 
 InputFrame InputHook::poll() {
