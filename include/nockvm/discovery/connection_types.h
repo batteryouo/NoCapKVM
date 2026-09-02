@@ -41,6 +41,13 @@ struct ConnectionInfo {
   uint32_t master_requested_sample_rate = 48000;
   uint8_t master_requested_bit_depth = 16;
   uint32_t master_audio_control_seq = 0;
+
+  // Slave-side only: set when kMsgGoAway is seen on this connection attempt
+  // (Master closing on purpose, not the link just dying). The app layer
+  // (auto_connect_pump.cpp) is responsible for turning this into a
+  // per-device suppression -- TcpClient itself doesn't track anything
+  // beyond a single attempt's lifetime.
+  bool go_away_received = false;
 };
 
 }  // namespace nockvm::discovery

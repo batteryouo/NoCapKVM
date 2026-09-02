@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include "nockvm/audio/capture.h"
 #include "nockvm/audio/channel.h"
@@ -48,6 +49,13 @@ struct AppState {
   // a TcpClient toward any discovered Master already in known_peers,
   // without the user having to click Connect themselves.
   bool auto_connect_enabled = true;
+  // Slave-only: device IDs to skip in pump_auto_connect() for the rest of
+  // this session, either because Master sent kMsgGoAway (see
+  // ConnectionInfo::go_away_received) or the user clicked Disconnect
+  // locally. Cleared for a given device the moment a connection to it
+  // reaches Connected again, by either an auto-connect attempt or a
+  // manual Connect click.
+  std::unordered_set<uint64_t> auto_connect_suppressed;
 
   // Master-only input capture/handoff state (brief §3.2), driven once per
   // frame by pump_input() in input_pump.cpp.
