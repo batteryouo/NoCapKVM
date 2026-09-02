@@ -10,6 +10,20 @@
 namespace nockvm::app {
 namespace {
 
+// Makes the ImGui window fill the whole GLFW window instead of floating as
+// an independently movable/auto-sizing panel inside it — the previous
+// AlwaysAutoResize|NoResize style just grows to fit content with no
+// scrollbar, so content bigger than the OS window (e.g. the arrangement
+// canvas) became unreachable without resizing the OS window itself.
+void begin_fullscreen_window() {
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->WorkPos);
+  ImGui::SetNextWindowSize(viewport->WorkSize);
+  ImGui::Begin("NoCapKVM", nullptr,
+               ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus);
+}
+
 void start_discovery(AppState& state, discovery::Role role) {
   state.role = role;
 
@@ -71,7 +85,7 @@ void draw_monitor_table(const char* table_id, const std::vector<display::Monitor
 }  // namespace
 
 void draw_role_select(AppState& state) {
-  ImGui::Begin("NoCapKVM", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize);
+  begin_fullscreen_window();
   ImGui::Text("This machine: %s", state.hostname.c_str());
   ImGui::Text("Choose how this device should act on the LAN:");
   ImGui::Spacing();
@@ -86,7 +100,7 @@ void draw_role_select(AppState& state) {
 }
 
 void draw_discovery(AppState& state) {
-  ImGui::Begin("NoCapKVM", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize);
+  begin_fullscreen_window();
   ImGui::Text("Role: %s  |  Host: %s", role_label(state.role), state.hostname.c_str());
   ImGui::Separator();
 
@@ -195,7 +209,7 @@ void draw_discovery(AppState& state) {
 }
 
 void draw_manage_devices(AppState& state) {
-  ImGui::Begin("NoCapKVM", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize);
+  begin_fullscreen_window();
   ImGui::TextUnformatted("Known devices:");
   ImGui::Spacing();
 
@@ -235,7 +249,7 @@ void draw_manage_devices(AppState& state) {
 }
 
 void draw_arrangement(AppState& state) {
-  ImGui::Begin("NoCapKVM", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize);
+  begin_fullscreen_window();
   ImGui::TextUnformatted("Screen arrangement:");
   ImGui::TextUnformatted("Drag the Slave block to a side of the Master block, then release to snap.");
   ImGui::Spacing();
@@ -322,11 +336,19 @@ void draw_arrangement(AppState& state) {
 
   const ImVec2 canvas_size((combined_max_x - combined_min_x) * kScale + 40.0f,
                             (combined_max_y - combined_min_y) * kScale + 40.0f);
+
+  // A real child region (not just a Dummy sized to fit): the canvas can
+  // legitimately be bigger than the available window space (real monitor
+  // pixel dimensions, only scaled down by kScale), so it needs its own
+  // scrollbars rather than growing the whole screen to fit it.
+  ImGui::BeginChild("canvas_region", ImVec2(0.0f, 320.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
+
   // Dummy (not InvisibleButton): this only needs to reserve layout space so
-  // the auto-resize window sizes correctly. An InvisibleButton here would be
-  // a full-canvas interactive widget submitted before peer_block, so it
-  // would claim mouse-down capture on every click before peer_block (at the
-  // same screen position) ever gets a chance — silently eating the drag.
+  // the child sizes its scroll range correctly. An InvisibleButton here
+  // would be a full-canvas interactive widget submitted before peer_block,
+  // so it would claim mouse-down capture on every click before peer_block
+  // (at the same screen position) ever gets a chance — silently eating the
+  // drag.
   ImGui::Dummy(canvas_size);
   const ImVec2 canvas_origin = ImGui::GetItemRectMin();
 
@@ -373,8 +395,7 @@ void draw_arrangement(AppState& state) {
     }
   }
 
-  // Restore normal layout flow below the whole canvas (drawing/dragging above manipulated the cursor directly).
-  ImGui::SetCursorScreenPos(ImVec2(canvas_origin.x, canvas_origin.y + canvas_size.y));
+  ImGui::EndChild();
 
   ImGui::Spacing();
   if (!has_peer) ImGui::TextUnformatted("Connect a Slave to arrange its screens.");
