@@ -12,6 +12,31 @@
 namespace nockvm::app {
 namespace {
 
+#ifdef _WIN32
+// Level-triggered rather than edge-triggered on Escape's own keydown: the
+// original check only looked at whether Ctrl/Alt/Shift were held at the
+// exact instant Escape's keydown fired, so if Escape happened to be pressed
+// slightly before the modifiers were fully seated, that one check silently
+// failed and nothing re-armed it without releasing and re-pressing Escape.
+// Checking the live held-keys set every frame instead means it fires as
+// soon as all four are simultaneously down, regardless of press order.
+bool escape_combo_held(const AppState& state) {
+  bool ctrl = false, alt = false, shift = false, esc = false;
+  for (const uint32_t vk : state.input_held_vks) {
+    switch (vk) {
+      case VK_CONTROL: case VK_LCONTROL: case VK_RCONTROL: ctrl = true; break;
+      case VK_MENU: case VK_LMENU: case VK_RMENU: alt = true; break;
+      case VK_SHIFT: case VK_LSHIFT: case VK_RSHIFT: shift = true; break;
+      case VK_ESCAPE: esc = true; break;
+      default: break;
+    }
+  }
+  return ctrl && alt && shift && esc;
+}
+#else
+bool escape_combo_held(const AppState&) { return false; }
+#endif
+
 uint8_t current_modifier_mask() {
 #ifdef _WIN32
   uint8_t mask = 0;
@@ -212,7 +237,7 @@ void pump_input(AppState& state) {
     }
   }
 
-  if (frame.escape_pressed && !state.input_owned_by_master) {
+  if (escape_combo_held(state) && !state.input_owned_by_master) {
     state.input_hook.resume();
     state.input_owned_by_master = true;
     // resume() with no target leaves the real cursor (and the hook's own

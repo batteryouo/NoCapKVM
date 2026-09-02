@@ -22,7 +22,6 @@ struct InputFrame {
   std::vector<MouseButtonEvent> buttons;
   std::vector<int16_t> wheel_deltas;
   std::vector<KeyEvent> keys;
-  bool escape_pressed = false;  // Ctrl+Alt+Shift+Esc observed since last poll()
 };
 
 // Windows-only global mouse/keyboard capture via WH_MOUSE_LL/WH_KEYBOARD_LL.

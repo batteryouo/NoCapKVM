@@ -148,13 +148,6 @@ LRESULT CALLBACK keyboard_proc(int code, WPARAM wparam, LPARAM lparam) {
   const bool extended = (info->flags & LLKHF_EXTENDED) != 0;
   self->pending_.keys.push_back({info->vkCode, info->scanCode, down, extended});
 
-  if (down && info->vkCode == VK_ESCAPE) {
-    const bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-    const bool alt = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-    const bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-    if (ctrl && alt && shift) self->pending_.escape_pressed = true;
-  }
-
   return self->suppress_.load() ? 1 : CallNextHookEx(nullptr, code, wparam, lparam);
 }
 
