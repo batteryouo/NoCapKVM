@@ -2,8 +2,10 @@
 #include <atomic>
 #include <chrono>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <unordered_set>
+#include "nockvm/discovery/clipboard_protocol.h"
 #include "nockvm/discovery/connection_types.h"
 #include "nockvm/discovery/known_peers.h"
 #include "nockvm/discovery/noise_primitives.h"
@@ -73,6 +75,14 @@ public:
   // send_mutex_ serializing this method against itself.
   bool send_input(uint8_t msg_type, const uint8_t* payload, size_t len);
 
+  // Called once per frame from clipboard_pump.cpp. Returns true and moves
+  // the pending message into `out` if one arrived since the last call --
+  // kept outside ConnectionInfo/status() specifically because a clipboard
+  // image can be up to a few MB, and status() is polled every frame; a
+  // field that size sitting in a struct copied wholesale every poll would
+  // mean re-copying it every frame long after it arrived, not just once.
+  bool take_pending_clipboard(ClipboardMessage& out);
+
 private:
   void run();
 
@@ -99,6 +109,8 @@ private:
   ConnectionInfo status_;
   mutable std::mutex send_mutex_;
   SecureChannel* active_channel_ = nullptr;  // set while Connected, guarded by send_mutex_
+  mutable std::mutex clipboard_mutex_;
+  std::optional<ClipboardMessage> pending_clipboard_;  // guarded by clipboard_mutex_
 };
 
 }  // namespace nockvm::discovery

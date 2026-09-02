@@ -15,7 +15,11 @@ namespace {
 // immediately on a local LAN; this bounds a stalled/half-open peer rather
 // than the normal per-poll wait (that's `deadline` in receive()).
 constexpr auto kFrameTimeout = std::chrono::seconds(3);
-constexpr uint32_t kMaxFrameLen = 1u << 20;  // sanity cap, well above any real message here
+// Sanity cap. 1MB comfortably covered every message type here until
+// clipboard image sync (JPEG-encoded clipboard images, see
+// nockvm::clipboard::encode_jpeg's own max_bytes budget) started producing
+// payloads that occasionally need more room than that.
+constexpr uint32_t kMaxFrameLen = 8u << 20;
 
 // Reads exactly `len` bytes, distinguishing a clean peer-close (`closed`
 // set to true) from a stall past `deadline`.
