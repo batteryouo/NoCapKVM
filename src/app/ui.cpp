@@ -15,13 +15,22 @@ namespace {
 // AlwaysAutoResize|NoResize style just grows to fit content with no
 // scrollbar, so content bigger than the OS window (e.g. the arrangement
 // canvas) became unreachable without resizing the OS window itself.
+//
+// Deliberately NOT using ImGuiWindowFlags_NoDecoration: that's a bundle
+// that also sets NoScrollbar, which would silently remove the window's
+// own scrollbars — if the page's content (any screen, not just the
+// canvas) is taller/wider than the OS window, there'd be no way to reach
+// the rest of it. HorizontalScrollbar is requested explicitly since it
+// isn't on by default; the vertical scrollbar is ImGui's default behavior
+// whenever content overflows and isn't suppressed here.
 void begin_fullscreen_window() {
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->WorkPos);
   ImGui::SetNextWindowSize(viewport->WorkSize);
   ImGui::Begin("NoCapKVM", nullptr,
-               ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
-                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus);
+               ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
+                   ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
+                   ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_HorizontalScrollbar);
 }
 
 void start_discovery(AppState& state, discovery::Role role) {
