@@ -9,19 +9,21 @@
 #include "nockvm/discovery/tcp_server.h"
 #include "nockvm/discovery/types.h"
 #include "nockvm/display/monitor_info.h"
+#include "nockvm/topology/arrangement.h"
 
 namespace nockvm::app {
 
-enum class Screen { RoleSelect, Discovery, ManageDevices };
+enum class Screen { RoleSelect, Discovery, ManageDevices, Arrangement };
 
 struct AppState {
   Screen screen = Screen::RoleSelect;
-  Screen previous_screen = Screen::RoleSelect;  // where "Back" on ManageDevices returns to
+  Screen previous_screen = Screen::RoleSelect;  // where "Back" on ManageDevices/Arrangement returns to
   discovery::Role role = discovery::Role::Master;
   uint64_t device_id = 0;
   std::string hostname;
   std::vector<display::MonitorInfo> local_monitors;  // this machine's own displays, queried once at startup
   discovery::KnownPeers known_peers;  // loaded once at startup, shared by reference
+  topology::ScreenArrangement screen_arrangement;  // Master-only: where each known peer's cluster sits, loaded once
   std::unique_ptr<discovery::Announcer> announcer;
   std::unique_ptr<discovery::Listener> listener;
   std::unique_ptr<discovery::TcpServer> tcp_server;  // Master only
