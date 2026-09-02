@@ -91,11 +91,8 @@ void configure_pointer_bounds(int32_t, int32_t, int32_t, int32_t) {}
 
 #else  // !_WIN32
 
-#include <cstring>
-#include <fcntl.h>
-#include <linux/uinput.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
+#include <libevdev/libevdev-uinput.h>
+#include <libevdev/libevdev.h>
 
 namespace nockvm::input {
 namespace {
@@ -103,81 +100,67 @@ namespace {
 int32_t g_bounds_min_x = 0, g_bounds_max_x = 65535, g_bounds_min_y = 0, g_bounds_max_y = 65535;
 uint8_t g_modifier_state = 0;  // shadow of held Shift/Ctrl/Alt/Meta -- uinput is write-only, no readback
 
-void emit(int fd, uint16_t type, uint16_t code, int32_t value) {
-  if (fd < 0) return;
-  struct input_event ev {};
-  ev.type = type;
-  ev.code = code;
-  ev.value = value;
-  write(fd, &ev, sizeof(ev));
+void emit(libevdev_uinput* dev, uint16_t type, uint16_t code, int32_t value) {
+  if (!dev) return;
+  libevdev_uinput_write_event(dev, type, code, value);
 }
 
-void sync_report(int fd) { emit(fd, EV_SYN, SYN_REPORT, 0); }
+void sync_report(libevdev_uinput* dev) { emit(dev, EV_SYN, SYN_REPORT, 0); }
 
-void finish_device(int fd, const char* name) {
-  struct uinput_setup setup {};
-  setup.id.bustype = BUS_VIRTUAL;
-  setup.id.vendor = 0x1209;
-  setup.id.product = 0x0001;
-  std::strncpy(setup.name, name, UINPUT_MAX_NAME_SIZE - 1);
-  ioctl(fd, UI_DEV_SETUP, &setup);
-  ioctl(fd, UI_DEV_CREATE);
+// Builds the device via libevdev_new()/enable_event_code() and hands it to
+// libevdev_uinput_create_from_device(), which opens /dev/uinput itself
+// (LIBEVDEV_UINPUT_OPEN_MANAGED) and does the UI_DEV_SETUP/UI_DEV_CREATE
+// ioctl sequence internally -- a thin wrapper around the same kernel API,
+// maintained upstream by the same people who maintain libinput, so it's
+// preferred here over hand-rolling the ioctls directly.
+libevdev_uinput* create_device(const char* name, void (*configure)(libevdev*)) {
+  libevdev* dev = libevdev_new();
+  libevdev_set_name(dev, name);
+  configure(dev);
+
+  libevdev_uinput* uidev = nullptr;
+  if (libevdev_uinput_create_from_device(dev, LIBEVDEV_UINPUT_OPEN_MANAGED, &uidev) < 0) uidev = nullptr;
+  libevdev_free(dev);
+  return uidev;
 }
 
 // Lazily created, kept open for the process's lifetime -- the kernel tears
-// the virtual device down when this fd closes at process exit.
-int ensure_keyboard_fd() {
-  static int fd = -1;
+// the virtual device down when this closes at process exit.
+libevdev_uinput* ensure_keyboard_dev() {
+  static libevdev_uinput* dev = nullptr;
   static bool tried = false;
-  if (tried) return fd;
+  if (tried) return dev;
   tried = true;
-
-  fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-  if (fd < 0) return fd;
-
-  ioctl(fd, UI_SET_EVBIT, EV_KEY);
-  for (int code = 0; code <= KEY_MAX; ++code) ioctl(fd, UI_SET_KEYBIT, code);
-  finish_device(fd, "NoCapKVM Virtual Keyboard");
-  return fd;
+  dev = create_device("NoCapKVM Virtual Keyboard", [](libevdev* d) {
+    libevdev_enable_event_type(d, EV_KEY);
+    for (int code = 0; code <= KEY_MAX; ++code) libevdev_enable_event_code(d, EV_KEY, code, nullptr);
+  });
+  return dev;
 }
 
-int ensure_mouse_fd() {
-  static int fd = -1;
+libevdev_uinput* ensure_mouse_dev() {
+  static libevdev_uinput* dev = nullptr;
   static bool tried = false;
-  if (tried) return fd;
+  if (tried) return dev;
   tried = true;
+  dev = create_device("NoCapKVM Virtual Mouse", [](libevdev* d) {
+    libevdev_enable_event_type(d, EV_KEY);
+    libevdev_enable_event_code(d, EV_KEY, BTN_LEFT, nullptr);
+    libevdev_enable_event_code(d, EV_KEY, BTN_RIGHT, nullptr);
+    libevdev_enable_event_code(d, EV_KEY, BTN_MIDDLE, nullptr);
+    libevdev_enable_event_code(d, EV_KEY, BTN_SIDE, nullptr);
+    libevdev_enable_event_code(d, EV_KEY, BTN_EXTRA, nullptr);
 
-  fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-  if (fd < 0) return fd;
+    libevdev_enable_event_type(d, EV_REL);
+    libevdev_enable_event_code(d, EV_REL, REL_WHEEL, nullptr);
 
-  ioctl(fd, UI_SET_EVBIT, EV_KEY);
-  ioctl(fd, UI_SET_KEYBIT, BTN_LEFT);
-  ioctl(fd, UI_SET_KEYBIT, BTN_RIGHT);
-  ioctl(fd, UI_SET_KEYBIT, BTN_MIDDLE);
-  ioctl(fd, UI_SET_KEYBIT, BTN_SIDE);
-  ioctl(fd, UI_SET_KEYBIT, BTN_EXTRA);
-
-  ioctl(fd, UI_SET_EVBIT, EV_REL);
-  ioctl(fd, UI_SET_RELBIT, REL_WHEEL);
-
-  ioctl(fd, UI_SET_EVBIT, EV_ABS);
-  ioctl(fd, UI_SET_ABSBIT, ABS_X);
-  ioctl(fd, UI_SET_ABSBIT, ABS_Y);
-
-  struct uinput_abs_setup abs_x {};
-  abs_x.code = ABS_X;
-  abs_x.absinfo.minimum = g_bounds_min_x;
-  abs_x.absinfo.maximum = g_bounds_max_x;
-  ioctl(fd, UI_ABS_SETUP, &abs_x);
-
-  struct uinput_abs_setup abs_y {};
-  abs_y.code = ABS_Y;
-  abs_y.absinfo.minimum = g_bounds_min_y;
-  abs_y.absinfo.maximum = g_bounds_max_y;
-  ioctl(fd, UI_ABS_SETUP, &abs_y);
-
-  finish_device(fd, "NoCapKVM Virtual Mouse");
-  return fd;
+    libevdev_enable_event_type(d, EV_ABS);
+    const input_absinfo abs_x{0, g_bounds_min_x, g_bounds_max_x, 0, 0, 0};
+    const input_absinfo abs_y{0, g_bounds_min_y, g_bounds_max_y, 0, 0, 0};
+    libevdev_enable_event_code(d, EV_ABS, ABS_X, &abs_x);
+    libevdev_enable_event_code(d, EV_ABS, ABS_Y, &abs_y);
+  });
+  return dev;
 }
 
 // Windows scancodes and Linux evdev keycodes both derive from the legacy
@@ -226,14 +209,14 @@ int modifier_bit(int code) {
 }  // namespace
 
 void inject_mouse_absolute(int32_t x, int32_t y) {
-  const int fd = ensure_mouse_fd();
-  emit(fd, EV_ABS, ABS_X, x);
-  emit(fd, EV_ABS, ABS_Y, y);
-  sync_report(fd);
+  auto* dev = ensure_mouse_dev();
+  emit(dev, EV_ABS, ABS_X, x);
+  emit(dev, EV_ABS, ABS_Y, y);
+  sync_report(dev);
 }
 
 void inject_mouse_button(uint8_t button, bool down) {
-  const int fd = ensure_mouse_fd();
+  auto* dev = ensure_mouse_dev();
   int code;
   switch (button) {
     case 0: code = BTN_LEFT; break;
@@ -243,24 +226,24 @@ void inject_mouse_button(uint8_t button, bool down) {
     case 4: code = BTN_EXTRA; break;
     default: return;
   }
-  emit(fd, EV_KEY, code, down ? 1 : 0);
-  sync_report(fd);
+  emit(dev, EV_KEY, code, down ? 1 : 0);
+  sync_report(dev);
 }
 
 void inject_mouse_wheel(int16_t delta) {
-  const int fd = ensure_mouse_fd();
-  emit(fd, EV_REL, REL_WHEEL, delta / 120);  // Windows' WHEEL_DELTA=120 units -> Linux's one-notch-per-unit
-  sync_report(fd);
+  auto* dev = ensure_mouse_dev();
+  emit(dev, EV_REL, REL_WHEEL, delta / 120);  // Windows' WHEEL_DELTA=120 units -> Linux's one-notch-per-unit
+  sync_report(dev);
 }
 
 void inject_key(uint32_t /*vk*/, uint32_t scancode, bool down, bool extended) {
-  const int fd = ensure_keyboard_fd();
+  auto* dev = ensure_keyboard_dev();
   const int code = extended ? translate_extended_scancode(scancode)
                              : (scancode >= 1 && scancode <= 88 ? static_cast<int>(scancode) : -1);
   if (code < 0) return;
 
-  emit(fd, EV_KEY, code, down ? 1 : 0);
-  sync_report(fd);
+  emit(dev, EV_KEY, code, down ? 1 : 0);
+  sync_report(dev);
 
   const int bit = modifier_bit(code);
   if (bit >= 0) {
@@ -270,7 +253,7 @@ void inject_key(uint32_t /*vk*/, uint32_t scancode, bool down, bool extended) {
 }
 
 void set_modifiers(uint8_t mask) {
-  const int fd = ensure_keyboard_fd();
+  auto* dev = ensure_keyboard_dev();
   struct { int code; uint8_t bit; } kModifiers[] = {
       {KEY_LEFTSHIFT, 0}, {KEY_LEFTCTRL, 1}, {KEY_LEFTALT, 2}, {KEY_LEFTMETA, 3}};
   bool changed = false;
@@ -278,12 +261,12 @@ void set_modifiers(uint8_t mask) {
     const bool want_down = (mask & (1u << m.bit)) != 0;
     const bool is_down = (g_modifier_state & (1u << m.bit)) != 0;
     if (want_down == is_down) continue;
-    emit(fd, EV_KEY, m.code, want_down ? 1 : 0);
+    emit(dev, EV_KEY, m.code, want_down ? 1 : 0);
     if (want_down) g_modifier_state |= (1u << m.bit);
     else g_modifier_state &= static_cast<uint8_t>(~(1u << m.bit));
     changed = true;
   }
-  if (changed) sync_report(fd);
+  if (changed) sync_report(dev);
 }
 
 bool get_local_cursor_pos(int32_t&, int32_t&) { return false; }
