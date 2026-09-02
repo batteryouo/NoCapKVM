@@ -1,4 +1,6 @@
 #include "input_pump.h"
+#include <cstdarg>
+#include <cstdio>
 #include "nockvm/discovery/connection_types.h"
 #include "nockvm/input/inject.h"
 #include "nockvm/input/protocol.h"
@@ -10,6 +12,18 @@
 
 namespace nockvm::app {
 namespace {
+
+// TEMPORARY DEBUG LOGGING -- remove once the crossing-coordinate issue is
+// diagnosed. Appends to nockvm_debug.log in the process's working directory.
+void debug_log(const char* fmt, ...) {
+  FILE* f = std::fopen("nockvm_debug.log", "a");
+  if (!f) return;
+  va_list args;
+  va_start(args, fmt);
+  std::vfprintf(f, fmt, args);
+  va_end(args);
+  std::fclose(f);
+}
 
 uint8_t current_modifier_mask() {
 #ifdef _WIN32
@@ -69,6 +83,13 @@ void handle_master_owned(AppState& state, const discovery::ConnectionInfo& info,
       state.input_logical_x = cross.x + (horizontal ? overshoot : 0);
       state.input_logical_y = cross.y + (horizontal ? 0 : overshoot);
       state.input_just_handed_off = true;
+
+      int32_t real_x = 0, real_y = 0;
+      input::get_local_cursor_pos(real_x, real_y);
+      debug_log("[B->A] dir=%d perp=%d clamped=(%d,%d) overshoot=%d cross_raw=(%d,%d) sent=(%d,%d) real_master_cursor=(%d,%d)\n",
+                static_cast<int>(bc.direction), bc.perp_pos, bc.clamped_x, bc.clamped_y, overshoot, cross.x, cross.y,
+                state.input_logical_x, state.input_logical_y, real_x, real_y);
+
       state.input_hook.suppress();
       const auto payload = input::encode_mouse_absolute(state.input_logical_x, state.input_logical_y);
       state.tcp_server->send_input(input::kMsgMouseAbsolute, payload.data(), payload.size());
@@ -147,6 +168,13 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
   state.input_logical_y = cross.y + (horizontal ? 0 : overshoot);
   state.input_just_handed_off = true;
   state.input_hook.resume(state.input_logical_x, state.input_logical_y);
+
+  int32_t real_x = 0, real_y = 0;
+  input::get_local_cursor_pos(real_x, real_y);
+  debug_log("[A->B] dir=%d perp=%d clamped=(%d,%d) overshoot=%d cross_raw=(%d,%d) sent=(%d,%d) real_master_cursor_after_resume=(%d,%d)\n",
+            static_cast<int>(bc.direction), bc.perp_pos, bc.clamped_x, bc.clamped_y, overshoot, cross.x, cross.y,
+            state.input_logical_x, state.input_logical_y, real_x, real_y);
+
   send_modifier_sync(state);
 }
 
