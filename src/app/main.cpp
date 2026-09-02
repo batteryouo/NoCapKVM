@@ -7,6 +7,8 @@
 #include "input_pump.h"
 #include "nockvm/discovery/identity.h"
 #include "nockvm/display/monitor_info.h"
+#include "nockvm/input/inject.h"
+#include "nockvm/topology/crossing.h"
 #include "ui.h"
 
 namespace {
@@ -38,6 +40,10 @@ int main() {
   state.device_id = nockvm::discovery::get_or_create_device_id();
   state.hostname = nockvm::discovery::get_hostname();
   state.local_monitors = nockvm::display::get_local_monitors();
+  if (!state.local_monitors.empty()) {
+    const auto b = nockvm::topology::compute_bounds(state.local_monitors);
+    nockvm::input::configure_pointer_bounds(b.min_x, b.max_x, b.min_y, b.max_y);
+  }
 
   while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();

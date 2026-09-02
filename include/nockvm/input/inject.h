@@ -24,4 +24,11 @@ void set_modifiers(uint8_t mask);
 // anchor starts from, on non-Windows always returns false.
 bool get_local_cursor_pos(int32_t& x, int32_t& y);
 
+// Configures the coordinate range inject_mouse_absolute() maps into (this
+// machine's own virtual-desktop bounds). Windows ignores this (SendInput's
+// own GetSystemMetrics-based normalization is used instead); Linux needs it
+// to size its virtual absolute-pointer device before first use. Call once
+// at startup, before any connection (and so any inject_* call) can happen.
+void configure_pointer_bounds(int32_t min_x, int32_t max_x, int32_t min_y, int32_t max_y);
+
 }  // namespace nockvm::input
