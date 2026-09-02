@@ -260,6 +260,11 @@ void pump_input(AppState& state) {
     // those releases never reach Slave) -- reading "currently held" here
     // would leave Slave's modifiers stuck down instead of freed.
     send_modifier_sync_mask(state, 0);
+    // The emergency escape is a hard reset, not just a handoff: drop the
+    // connection outright rather than leaving it up. Reconnecting is
+    // currently manual (Slave has to click Connect again) -- a known,
+    // accepted rough edge for now rather than something to solve here.
+    state.tcp_server->disconnect_current();
     return;
   }
 
