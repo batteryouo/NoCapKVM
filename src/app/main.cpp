@@ -6,6 +6,7 @@
 #include <backends/imgui_impl_opengl3.h>
 #include "app_state.h"
 #include "audio_pump.h"
+#include "auto_connect_pump.h"
 #include "input_pump.h"
 #include "nockvm/discovery/identity.h"
 #include "nockvm/display/monitor_info.h"
@@ -111,6 +112,7 @@ int main() {
     glfwPollEvents();
     nockvm::app::pump_input(state);
     nockvm::app::pump_audio(state);
+    nockvm::app::pump_auto_connect(state);
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();

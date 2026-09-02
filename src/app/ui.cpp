@@ -120,6 +120,11 @@ void draw_connection_tab(AppState& state) {
       is_slave ? "(Give up auto-reconnecting after this many seconds of continuous disconnection.)"
                : "(Force-disconnect a silent Slave after this many seconds with no traffic.)");
   if (state.tcp_server) state.tcp_server->set_heartbeat_timeout(std::chrono::seconds(state.connection_timeout_s));
+
+  if (is_slave) {
+    ImGui::Checkbox("Auto-connect to trusted Masters", &state.auto_connect_enabled);
+    ImGui::TextUnformatted("(Automatically connects to any discovered Master already in the trusted list below.)");
+  }
   ImGui::Spacing();
 
   ImGui::Text("Discovered %s(s):", role_label(wanted));

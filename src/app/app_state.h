@@ -43,6 +43,11 @@ struct AppState {
   // than two separate settings since both are really the same question
   // ("how long is too long to hear nothing") asked from either side.
   int connection_timeout_s = 10;
+  // Slave-only, UI-controlled (Discovery screen's Connection tab): whether
+  // pump_auto_connect() (auto_connect_pump.cpp) should automatically start
+  // a TcpClient toward any discovered Master already in known_peers,
+  // without the user having to click Connect themselves.
+  bool auto_connect_enabled = true;
 
   // Master-only input capture/handoff state (brief §3.2), driven once per
   // frame by pump_input() in input_pump.cpp.
