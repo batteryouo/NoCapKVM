@@ -46,15 +46,12 @@ public:
   void uninstall();
 
   // Starts suppressing mouse-move/button/wheel/key events from reaching the
-  // local OS. Warps the real cursor to a fixed point away from any screen
-  // edge first (not wherever it currently is — it's typically sitting
-  // exactly at the edge that was just crossed, and the OS clamps cursor
-  // position to the desktop bounds regardless of suppression, so an anchor
-  // left at the edge would clamp future pushes back to zero delta just like
-  // the unsuppressed case does). Each subsequent blocked move re-centers the
-  // real cursor back to that anchor so raw deltas keep flowing indefinitely
-  // (the same technique Synergy/Barrier use, since a low-level hook cannot
-  // rewrite MSLLHOOKSTRUCT::pt and pass it through).
+  // local OS. The real cursor is left exactly where it is (WH_MOUSE_LL's
+  // own pt-based tracking is clamped to the real desktop bounds, so it
+  // can't be used to track further movement once suppressed without
+  // moving the cursor away from wherever it's sitting — instead, further
+  // movement while suppressed comes from feed_raw_delta() below, which
+  // isn't subject to that clamp at all).
   void suppress();
 
   // Stops suppressing; events pass through to the local OS untouched again.
@@ -82,5 +79,13 @@ private:
   void* mouse_hook_ = nullptr;
   void* keyboard_hook_ = nullptr;
 };
+
+// Feeds a Windows Raw Input relative mouse delta (WM_INPUT/RAWMOUSE) into
+// the live InputHook instance's pending frame, but only while it's
+// suppressed — unsuppressed tracking already comes from WH_MOUSE_LL's own
+// pt field. The caller (main.cpp) is responsible for registering for and
+// dispatching WM_INPUT; this just routes the resulting delta. No-op on
+// non-Windows builds and when no InputHook is currently installed.
+void feed_raw_delta(int32_t dx, int32_t dy);
 
 }  // namespace nockvm::input
