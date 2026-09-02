@@ -238,14 +238,22 @@ void pump_input(AppState& state) {
   }
 
   if (escape_combo_held(state) && !state.input_owned_by_master) {
-    state.input_hook.resume();
+    // Land at the center of Master's own bounds, not wherever the real
+    // cursor happens to be sitting: since suppress() stopped moving the
+    // cursor at all, the real position (and the hook's anchor) is still
+    // exactly the edge that was originally crossed -- resuming there with
+    // no margin meant the very next frame immediately re-detected that
+    // same edge and crossed straight back to Slave (the reported
+    // back-and-forth toggle). An emergency reset can afford a visible
+    // jump; landing solidly in the interior is what actually matters.
+    const topology::ClusterBounds b = topology::compute_bounds(state.local_monitors);
+    const int32_t safe_x = (b.min_x + b.max_x) / 2;
+    const int32_t safe_y = (b.min_y + b.max_y) / 2;
+    state.input_hook.resume(safe_x, safe_y);
     state.input_owned_by_master = true;
-    // resume() with no target leaves the real cursor (and the hook's own
-    // anchor) wherever suppression parked it -- sync logical tracking to
-    // that same real position, or it would keep accumulating from a stale
-    // Slave-space coordinate and corrupt every crossing check after this.
-    state.input_logical_x = state.input_hook.anchor_x_;
-    state.input_logical_y = state.input_hook.anchor_y_;
+    state.input_logical_x = safe_x;
+    state.input_logical_y = safe_y;
+    state.input_just_handed_off = true;
     // Force-clear rather than reading current physical state: the user is
     // still physically holding the hotkey's own modifiers right now, and
     // will release them after control has already returned to Master (so
