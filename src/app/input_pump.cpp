@@ -139,11 +139,17 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
               state.input_logical_x, state.input_logical_y);
   }
 
-  state.input_logical_x = bc.clamped_x;
-  state.input_logical_y = bc.clamped_y;
-
+  // Send the CLAMPED position (the visible cursor on Slave should stay
+  // pinned at its own screen edge until a crossing actually commits) but do
+  // NOT write it back into state.input_logical_x/y here: doing that
+  // unconditionally every frame was the actual bug behind "almost always
+  // fails" -- it discarded any overshoot that didn't clear the margin
+  // within a single frame's batched delta, so a gentle sustained push
+  // against the edge (completely normal) never accumulated across frames;
+  // each frame started over exactly at the boundary. Below, only a
+  // successful crossing reassigns state.input_logical_x/y.
   {
-    const auto payload = input::encode_mouse_absolute(state.input_logical_x, state.input_logical_y);
+    const auto payload = input::encode_mouse_absolute(bc.clamped_x, bc.clamped_y);
     state.tcp_server->send_input(input::kMsgMouseAbsolute, payload.data(), payload.size());
   }
   for (const auto& b : frame.buttons) {
