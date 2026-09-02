@@ -5,6 +5,7 @@
 #include <string>
 #include <imgui.h>
 #include "nockvm/discovery/connection_types.h"
+#include "nockvm/discovery/identity.h"
 #include "nockvm/discovery/types.h"
 #include "nockvm/topology/crossing.h"
 
@@ -36,6 +37,7 @@ void begin_fullscreen_window() {
 
 void start_discovery(AppState& state, discovery::Role role) {
   state.role = role;
+  discovery::save_last_role(role);
 
   uint16_t tcp_port = 0;
   if (role == discovery::Role::Master) {
@@ -280,6 +282,10 @@ void draw_audio_tab(AppState& state) {
 }
 
 }  // namespace
+
+void resume_last_role_if_any(AppState& state) {
+  if (const auto role = discovery::get_last_role()) start_discovery(state, *role);
+}
 
 void draw_role_select(AppState& state) {
   begin_fullscreen_window();

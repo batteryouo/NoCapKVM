@@ -43,6 +43,22 @@ uint64_t get_or_create_device_id() {
   return id;
 }
 
+std::optional<Role> get_last_role() {
+  std::ifstream in(config_dir() / "last_role");
+  int value = -1;
+  in >> value;
+  if (!in || (value != 0 && value != 1)) return std::nullopt;
+  return static_cast<Role>(value);
+}
+
+void save_last_role(Role role) {
+  const std::filesystem::path dir = config_dir();
+  std::error_code ec;
+  std::filesystem::create_directories(dir, ec);
+  std::ofstream out(dir / "last_role");
+  out << static_cast<int>(role);
+}
+
 std::string get_hostname() {
 #ifdef _WIN32
   char buf[256];
