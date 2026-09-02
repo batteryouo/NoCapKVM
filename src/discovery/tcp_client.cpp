@@ -217,11 +217,15 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
     std::lock_guard<std::mutex> lock(send_mutex_);
     active_channel_ = &channel;
   }
-  const std::vector<uint8_t> monitor_payload = encode_monitor_list(display::get_local_monitors());
-  channel.send(kMsgMonitorList, monitor_payload.data(), monitor_payload.size());
+  std::vector<display::MonitorInfo> last_sent_monitors = display::get_local_monitors();
+  {
+    const std::vector<uint8_t> monitor_payload = encode_monitor_list(last_sent_monitors);
+    channel.send(kMsgMonitorList, monitor_payload.data(), monitor_payload.size());
+  }
 
   auto last_heard = std::chrono::steady_clock::now();
   auto last_heartbeat_sent = std::chrono::steady_clock::now();
+  auto last_monitor_check = std::chrono::steady_clock::now();
   while (running_.load()) {
     uint8_t msg_type;
     std::vector<uint8_t> payload;
@@ -262,6 +266,21 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
       uint8_t no_payload = 0;
       channel.send(kMsgHeartbeat, &no_payload, 0);
       last_heartbeat_sent = now;
+    }
+    // Polled rather than hooked into an OS hotplug event (WM_DISPLAYCHANGE,
+    // XRandR, ...) -- simpler and platform-independent, and once a second
+    // is plenty responsive for a monitor being plugged/unplugged. Without
+    // this, Master would keep whatever monitor list Slave reported at
+    // connect time forever, so e.g. unplugging Slave's display wouldn't
+    // stop Master from still crossing the mouse onto it.
+    if (now - last_monitor_check >= kHeartbeatInterval) {
+      std::vector<display::MonitorInfo> current_monitors = display::get_local_monitors();
+      if (current_monitors != last_sent_monitors) {
+        const std::vector<uint8_t> monitor_payload = encode_monitor_list(current_monitors);
+        channel.send(kMsgMonitorList, monitor_payload.data(), monitor_payload.size());
+        last_sent_monitors = std::move(current_monitors);
+      }
+      last_monitor_check = now;
     }
   }
 
