@@ -172,6 +172,18 @@ int main() {
     assert(bc.clamped_y == 540);
   }
 
+  // check_boundary: touching an edge exactly (not past it) still counts as
+  // crossed -- the real OS cursor position this is fed from is itself
+  // already clamped to the desktop bounds, so it can never actually exceed
+  // them; touching is the only observable signal available.
+  {
+    const ClusterBounds bounds{0, 1920, 0, 1080};
+    const BoundaryCheck bc = check_boundary(bounds, 0, 540);
+    assert(bc.crossed);
+    assert(bc.direction == Direction::Left);
+    assert(bc.clamped_x == 0);
+  }
+
   // check_boundary: exceeds each of the four edges in turn.
   {
     const ClusterBounds bounds{0, 1920, 0, 1080};

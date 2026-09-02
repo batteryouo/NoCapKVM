@@ -30,7 +30,7 @@ void send_modifier_sync(AppState& state) {
 }
 
 void deactivate_hook(AppState& state) {
-  state.input_hook.set_suppress(false);
+  state.input_hook.resume();
   state.input_hook.uninstall();
   state.input_hook_active = false;
   state.input_owned_by_master = true;
@@ -52,7 +52,7 @@ void handle_master_owned(AppState& state, const discovery::ConnectionInfo& info,
       state.input_owned_by_master = false;
       state.input_logical_x = cross.x;
       state.input_logical_y = cross.y;
-      state.input_hook.set_suppress(true);
+      state.input_hook.suppress();
       const auto payload = input::encode_mouse_absolute(cross.x, cross.y);
       state.tcp_server->send_input(input::kMsgMouseAbsolute, payload.data(), payload.size());
       send_modifier_sync(state);
@@ -107,8 +107,7 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
   state.input_owned_by_master = true;
   state.input_logical_x = cross.x;
   state.input_logical_y = cross.y;
-  input::set_local_cursor_pos(cross.x, cross.y);
-  state.input_hook.set_suppress(false);
+  state.input_hook.resume(cross.x, cross.y);
   send_modifier_sync(state);
 }
 
@@ -153,7 +152,7 @@ void pump_input(AppState& state) {
   const input::InputFrame frame = state.input_hook.poll();
 
   if (frame.escape_pressed && !state.input_owned_by_master) {
-    state.input_hook.set_suppress(false);
+    state.input_hook.resume();
     state.input_owned_by_master = true;
     send_modifier_sync(state);
     return;

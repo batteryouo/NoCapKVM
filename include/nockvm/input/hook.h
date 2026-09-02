@@ -45,16 +45,26 @@ public:
   bool install();
   void uninstall();
 
-  // true: mouse-move/button/wheel/key events are suppressed from reaching
-  // the local OS. Mouse-move suppression captures the real cursor's
-  // position as a fixed anchor at the moment suppression turns on, then
-  // repeatedly blocks the move and calls SetCursorPos to snap the real
-  // (hidden) cursor back to that anchor — so raw deltas keep flowing
-  // indefinitely instead of clamping once the real cursor reaches a screen
-  // edge (the same technique Synergy/Barrier use, since a low-level hook
-  // cannot rewrite MSLLHOOKSTRUCT::pt and pass it through).
-  // false: events pass through to the local OS untouched.
-  void set_suppress(bool suppress);
+  // Starts suppressing mouse-move/button/wheel/key events from reaching the
+  // local OS. Warps the real cursor to a fixed point away from any screen
+  // edge first (not wherever it currently is — it's typically sitting
+  // exactly at the edge that was just crossed, and the OS clamps cursor
+  // position to the desktop bounds regardless of suppression, so an anchor
+  // left at the edge would clamp future pushes back to zero delta just like
+  // the unsuppressed case does). Each subsequent blocked move re-centers the
+  // real cursor back to that anchor so raw deltas keep flowing indefinitely
+  // (the same technique Synergy/Barrier use, since a low-level hook cannot
+  // rewrite MSLLHOOKSTRUCT::pt and pass it through).
+  void suppress();
+
+  // Stops suppressing; events pass through to the local OS untouched again.
+  void resume();
+
+  // Same as resume(), but also warps the real cursor to (x, y) first and
+  // syncs the anchor to match — use this when handing control back to a
+  // specific landing point, so the next real move's delta isn't a spurious
+  // jump from the stale suppression anchor.
+  void resume(int32_t x, int32_t y);
 
   // Drains everything accumulated since the last call.
   InputFrame poll();

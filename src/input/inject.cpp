@@ -75,8 +75,6 @@ void set_modifiers(uint8_t mask) {
   }
 }
 
-void set_local_cursor_pos(int32_t x, int32_t y) { SetCursorPos(x, y); }
-
 bool get_local_cursor_pos(int32_t& x, int32_t& y) {
   POINT pt;
   if (!GetCursorPos(&pt)) return false;
@@ -96,7 +94,6 @@ void inject_mouse_button(uint8_t, bool) {}
 void inject_mouse_wheel(int16_t) {}
 void inject_key(uint32_t, uint32_t, bool, bool) {}
 void set_modifiers(uint8_t) {}
-void set_local_cursor_pos(int32_t, int32_t) {}
 bool get_local_cursor_pos(int32_t&, int32_t&) { return false; }
 
 }  // namespace nockvm::input
