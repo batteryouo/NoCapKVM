@@ -10,7 +10,7 @@ namespace nockvm::audio {
 // receiving network packets), through this machine's default output
 // device, in the given format -- which must match whatever format the
 // remote side's AudioCapture is actually using (communicated out of band
-// by the discovery layer's kMsgAudioFormat; this class has no way to
+// by the discovery layer's kMsgAudioStatus/kMsgAudioControl; this class has no way to
 // detect a mismatch on its own, it'll just play garbled audio). Internally
 // paced by a JitterBuffer so out-of-order/lost network packets become
 // silence rather than blocking playback.

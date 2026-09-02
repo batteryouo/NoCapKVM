@@ -22,10 +22,25 @@ struct ConnectionInfo {
   // can independently derive the same audio::derive_audio_key() from it.
   Key32 audio_key{};
   uint16_t peer_audio_port = 0;  // Slave-side only: the UDP port Master reported via kMsgAudioPort
-  // Master-side only: the format Slave last reported via kMsgAudioFormat
-  // (0 sample_rate means "not reported yet, or Slave isn't sending audio").
+
+  // Master-side only: Slave's current actual audio settings, last reported
+  // via kMsgAudioStatus. peer_audio_send_enabled defaults to false, which
+  // doubles as "unknown" (nothing reported yet this connection) and
+  // "explicitly disabled" -- both mean "don't expect audio right now".
+  bool peer_audio_send_enabled = false;
   uint32_t peer_audio_sample_rate = 0;
   uint8_t peer_audio_bit_depth = 16;
+
+  // Slave-side only: Master's latest requested audio settings, reported
+  // via kMsgAudioControl. master_audio_control_seq increments on every
+  // received control message so the app layer can apply a new request
+  // exactly once (edge-triggered) instead of re-applying it every frame,
+  // which would otherwise fight a local edit made in between.
+  bool master_audio_control_received = false;
+  bool master_requested_send_enabled = true;
+  uint32_t master_requested_sample_rate = 48000;
+  uint8_t master_requested_bit_depth = 16;
+  uint32_t master_audio_control_seq = 0;
 };
 
 }  // namespace nockvm::discovery

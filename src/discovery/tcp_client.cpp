@@ -218,6 +218,18 @@ void TcpClient::run() {
           std::lock_guard<std::mutex> lock(status_mutex_);
           status_.peer_audio_port = audio_port;
         }
+      } else if (msg_type == kMsgAudioControl) {
+        bool send_enabled;
+        uint32_t sample_rate;
+        uint8_t bit_depth;
+        if (decode_audio_settings(payload.data(), payload.size(), send_enabled, sample_rate, bit_depth)) {
+          std::lock_guard<std::mutex> lock(status_mutex_);
+          status_.master_requested_send_enabled = send_enabled;
+          status_.master_requested_sample_rate = sample_rate;
+          status_.master_requested_bit_depth = bit_depth;
+          status_.master_audio_control_received = true;
+          status_.master_audio_control_seq++;
+        }
       } else {
         dispatch_input_message(msg_type, payload);
       }

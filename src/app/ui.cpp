@@ -220,13 +220,39 @@ void draw_audio_tab(AppState& state) {
     } else {
       ImGui::TextUnformatted("Not currently sending (not connected, or disabled above).");
     }
+    ImGui::Spacing();
+    ImGui::TextUnformatted("(These settings can also be changed from Master's side.)");
   } else {
-    if (state.tcp_server && state.tcp_server->status().state == discovery::ConnectionState::Connected &&
-        state.tcp_server->status().peer_audio_sample_rate != 0) {
+    // Master can drive these settings too -- pump_audio() sends whatever
+    // is set here to Slave as a request (kMsgAudioControl) whenever it
+    // changes, so touching Slave's own machine is no longer required.
+    ImGui::Checkbox("Send audio (request to Slave)", &state.audio_master_desired_send_enabled);
+    ImGui::Spacing();
+
+    ImGui::TextUnformatted("Sample rate:");
+    if (ImGui::RadioButton("48kHz", state.audio_master_desired_format.sample_rate == 48000))
+      state.audio_master_desired_format.sample_rate = 48000;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("24kHz", state.audio_master_desired_format.sample_rate == 24000))
+      state.audio_master_desired_format.sample_rate = 24000;
+
+    ImGui::TextUnformatted("Bit depth:");
+    if (ImGui::RadioButton("16-bit", state.audio_master_desired_format.bit_depth == 16))
+      state.audio_master_desired_format.bit_depth = 16;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("8-bit", state.audio_master_desired_format.bit_depth == 8))
+      state.audio_master_desired_format.bit_depth = 8;
+
+    ImGui::Spacing();
+    if (state.tcp_server && state.tcp_server->status().state == discovery::ConnectionState::Connected) {
       const discovery::ConnectionInfo info = state.tcp_server->status();
-      ImGui::Text("Receiving: %u Hz, %u-bit", info.peer_audio_sample_rate, info.peer_audio_bit_depth);
+      if (info.peer_audio_send_enabled) {
+        ImGui::Text("Slave is sending: %u Hz, %u-bit", info.peer_audio_sample_rate, info.peer_audio_bit_depth);
+      } else {
+        ImGui::TextUnformatted("Slave is not sending audio.");
+      }
     } else {
-      ImGui::TextUnformatted("No audio (Slave not connected, or has audio disabled).");
+      ImGui::TextUnformatted("No audio (Slave not connected).");
     }
   }
 }

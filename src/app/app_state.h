@@ -63,10 +63,40 @@ struct AppState {
   // Slave-only, UI-controlled (Discovery screen's Audio tab): whether to
   // capture/send at all, and at what quality. pump_audio() compares these
   // against audio_active_format/audio_active each frame and restarts
-  // capture (re-announcing the new format via kMsgAudioFormat) whenever
-  // they differ from what's currently running.
+  // capture whenever they differ from what's currently running. Editable
+  // either by the user directly on Slave, or overwritten by pump_audio()
+  // when a new request arrives from Master (see audio_last_applied_
+  // master_control_seq below) -- either way, the same fields drive
+  // capture, so both paths are handled by one code path.
   bool audio_send_enabled = true;
   audio::AudioFormat audio_desired_format;
+
+  // Bidirectional audio settings sync: either machine's Audio tab can now
+  // edit these settings, and whichever side changes them announces the
+  // change to the other over the existing SecureChannel (kMsgAudioStatus
+  // Slave->Master, kMsgAudioControl Master->Slave) so both UIs and the
+  // actual capture/playback stay consistent regardless of which side the
+  // user touches.
+
+  // Master-only, UI-controlled: what Master wants Slave's capture set to.
+  // pump_audio() sends this to Slave once per connection and again on
+  // every subsequent change (tracked via audio_master_last_sent_*).
+  bool audio_master_desired_send_enabled = true;
+  audio::AudioFormat audio_master_desired_format;
+  bool audio_master_control_sent = false;  // at least one kMsgAudioControl sent this connection
+  bool audio_master_last_sent_enabled = true;
+  audio::AudioFormat audio_master_last_sent_format;
+
+  // Slave-only: tracks the last kMsgAudioControl actually applied from
+  // Master (by sequence number, so a request is applied exactly once
+  // rather than every frame, which would otherwise fight a local edit
+  // made in between) and the last status Slave itself reported to Master
+  // (so a local change, including disabling sending, is announced exactly
+  // once rather than repeated every frame).
+  uint32_t audio_last_applied_master_control_seq = 0;
+  bool audio_status_reported = false;  // at least one kMsgAudioStatus sent this connection
+  bool audio_last_reported_send_enabled = true;
+  audio::AudioFormat audio_last_reported_format;
 };
 
 }  // namespace nockvm::app
