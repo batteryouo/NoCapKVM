@@ -36,6 +36,12 @@ struct AppState {
   bool input_hook_active = false;    // whether install() has been called (tracks the Connected transition)
   bool input_owned_by_master = true;
   int32_t input_logical_x = 0, input_logical_y = 0;  // current owner's own local coordinate space
+  // A crossing's landing point sits exactly on the shared edge, so the
+  // frame right after a handoff is already touching the boundary that
+  // would trigger crossing back the other way. Set on every handoff (both
+  // directions), consumed (and cleared) by the very next frame's crossing
+  // check so a stray post-handoff jitter can't immediately bounce it back.
+  bool input_just_handed_off = false;
 };
 
 }  // namespace nockvm::app

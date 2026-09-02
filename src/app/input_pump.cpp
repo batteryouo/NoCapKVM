@@ -44,14 +44,19 @@ void handle_master_owned(AppState& state, const discovery::ConnectionInfo& info,
   const topology::BoundaryCheck bc =
       topology::check_boundary(master_bounds, state.input_logical_x, state.input_logical_y);
 
+  const bool skip_crossing = state.input_just_handed_off;
+  state.input_just_handed_off = false;
+
   const auto arrangement = state.screen_arrangement.get(info.peer_device_id);
-  if (bc.crossed && arrangement && arrangement->direction == bc.direction && !info.peer_monitors.empty()) {
+  if (!skip_crossing && bc.crossed && arrangement && arrangement->direction == bc.direction &&
+      !info.peer_monitors.empty()) {
     const topology::CrossingResult cross =
         topology::compute_crossing(info.peer_monitors, arrangement->direction, arrangement->offset, bc.perp_pos);
     if (cross.has_target) {
       state.input_owned_by_master = false;
       state.input_logical_x = cross.x;
       state.input_logical_y = cross.y;
+      state.input_just_handed_off = true;
       state.input_hook.suppress();
       const auto payload = input::encode_mouse_absolute(cross.x, cross.y);
       state.tcp_server->send_input(input::kMsgMouseAbsolute, payload.data(), payload.size());
@@ -72,6 +77,21 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
   const topology::ClusterBounds peer_bounds = topology::compute_bounds(info.peer_monitors);
   const topology::BoundaryCheck bc =
       topology::check_boundary(peer_bounds, state.input_logical_x, state.input_logical_y);
+
+  const bool skip_crossing = state.input_just_handed_off;
+  state.input_just_handed_off = false;
+
+  // The landing point on entry sits exactly on this same edge, so touch
+  // alone (overshoot == 0) would flag every frame at rest right at the
+  // boundary as a crossing. Require a deliberate push past it, not just
+  // reaching it, before honoring a crossing back the other way.
+  constexpr int32_t kReturnMargin = 4;
+  const int32_t overshoot_x = state.input_logical_x - bc.clamped_x;
+  const int32_t overshoot_y = state.input_logical_y - bc.clamped_y;
+  const bool past_margin =
+      bc.crossed && ((overshoot_x >= kReturnMargin || overshoot_x <= -kReturnMargin) ||
+                      (overshoot_y >= kReturnMargin || overshoot_y <= -kReturnMargin));
+
   state.input_logical_x = bc.clamped_x;
   state.input_logical_y = bc.clamped_y;
 
@@ -92,7 +112,7 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
     state.tcp_server->send_input(input::kMsgKey, payload.data(), payload.size());
   }
 
-  if (!bc.crossed) return;
+  if (skip_crossing || !past_margin) return;
   const auto arrangement = state.screen_arrangement.get(info.peer_device_id);
   if (!arrangement) return;
 
@@ -107,6 +127,7 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
   state.input_owned_by_master = true;
   state.input_logical_x = cross.x;
   state.input_logical_y = cross.y;
+  state.input_just_handed_off = true;
   state.input_hook.resume(cross.x, cross.y);
   send_modifier_sync(state);
 }
