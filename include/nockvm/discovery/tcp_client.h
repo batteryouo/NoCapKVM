@@ -39,6 +39,14 @@ public:
   bool send_message(uint8_t msg_type, const uint8_t* payload, size_t len);
 
 private:
+  // Outcome of a single connect-through-disconnect attempt, used by run()
+  // to decide whether to retry and how long to back off before doing so.
+  enum class AttemptOutcome {
+    kRetryFast,     // reached Connected before failing -- retry soon
+    kRetryBackoff,  // never got connected -- retry after a growing delay
+    kGiveUp,        // pairing was explicitly rejected -- not worth retrying
+  };
+  AttemptOutcome run_once();
   void run();
 
   uint64_t own_device_id_;
