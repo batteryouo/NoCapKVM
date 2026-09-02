@@ -28,9 +28,9 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 target_link_libraries(imgui PUBLIC glfw)
 
-add_executable(nockvm_app main.cpp ui.cpp)
+add_executable(nockvm_app main.cpp ui.cpp input_pump.cpp)
 target_include_directories(nockvm_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(nockvm_app PRIVATE nockvm_common nockvm_discovery nockvm_topology imgui glfw)
+target_link_libraries(nockvm_app PRIVATE nockvm_common nockvm_discovery nockvm_topology nockvm_input imgui glfw)
 
 if(WIN32)
   target_link_libraries(nockvm_app PRIVATE opengl32)

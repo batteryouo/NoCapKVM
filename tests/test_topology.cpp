@@ -163,5 +163,89 @@ int main() {
     assert(d.offset == 700);
   }
 
+  // check_boundary: inside bounds -> no crossing, clamp is a no-op.
+  {
+    const ClusterBounds bounds{0, 1920, 0, 1080};
+    const BoundaryCheck bc = check_boundary(bounds, 960, 540);
+    assert(!bc.crossed);
+    assert(bc.clamped_x == 960);
+    assert(bc.clamped_y == 540);
+  }
+
+  // check_boundary: exceeds each of the four edges in turn.
+  {
+    const ClusterBounds bounds{0, 1920, 0, 1080};
+    {
+      const BoundaryCheck bc = check_boundary(bounds, -50, 300);
+      assert(bc.crossed);
+      assert(bc.direction == Direction::Left);
+      assert(bc.clamped_x == 0);
+      assert(bc.perp_pos == 300);
+    }
+    {
+      const BoundaryCheck bc = check_boundary(bounds, 2000, 300);
+      assert(bc.crossed);
+      assert(bc.direction == Direction::Right);
+      assert(bc.clamped_x == 1920);
+      assert(bc.perp_pos == 300);
+    }
+    {
+      const BoundaryCheck bc = check_boundary(bounds, 400, -50);
+      assert(bc.crossed);
+      assert(bc.direction == Direction::Up);
+      assert(bc.clamped_y == 0);
+      assert(bc.perp_pos == 400);
+    }
+    {
+      const BoundaryCheck bc = check_boundary(bounds, 400, 2000);
+      assert(bc.crossed);
+      assert(bc.direction == Direction::Down);
+      assert(bc.clamped_y == 1080);
+      assert(bc.perp_pos == 400);
+    }
+  }
+
+  // invert_entry: both clusters anchored at (0,0) -> inverse offset is a
+  // simple negation, direction flips.
+  {
+    const ClusterBounds master{0, 1920, 0, 1080};
+    const ClusterBounds peer{0, 1920, 0, 1080};
+    const ArrangementEntry entry{42, Direction::Right, 100};
+    const ArrangementEntry inv = invert_entry(entry, master, peer);
+    assert(inv.direction == Direction::Left);
+    assert(inv.offset == -100);
+  }
+
+  // invert_entry: round-trips back to the original when applied twice.
+  {
+    const ClusterBounds master{0, 1920, 0, 1080};
+    const ClusterBounds peer{0, 1920, 0, 1080};
+    const ArrangementEntry entry{42, Direction::Down, -50};
+    const ArrangementEntry inv = invert_entry(entry, master, peer);
+    assert(inv.direction == Direction::Up);
+    assert(inv.offset == 50);
+    const ArrangementEntry back = invert_entry(inv, peer, master);
+    assert(back.direction == entry.direction);
+    assert(back.offset == entry.offset);
+  }
+
+  // invert_entry: non-zero cluster origins (e.g. a peer whose monitor union
+  // doesn't start at (0,0)) shift the inverse offset by the correction term
+  // rather than a plain negation.
+  {
+    const ClusterBounds master{0, 1920, 0, 1080};
+    const ClusterBounds peer{500, 2420, 200, 1280};  // peer's own local origin is (500, 200)
+    const ArrangementEntry entry{7, Direction::Right, 300};
+    const ArrangementEntry inv = invert_entry(entry, master, peer);
+    assert(inv.direction == Direction::Left);
+    assert(inv.offset == 200 + 0 - 300);  // peer.min_y + master.min_y - offset
+
+    const ClusterBounds peer2{500, 2420, 200, 1280};
+    const ArrangementEntry entry2{7, Direction::Up, 300};
+    const ArrangementEntry inv2 = invert_entry(entry2, master, peer2);
+    assert(inv2.direction == Direction::Down);
+    assert(inv2.offset == 500 + 0 - 300);  // peer.min_x + master.min_x - offset
+  }
+
   return 0;
 }

@@ -8,6 +8,8 @@
 #include "nockvm/discovery/secure_channel.h"
 #include "nockvm/discovery/static_keys.h"
 #include "nockvm/display/monitor_info.h"
+#include "nockvm/input/inject.h"
+#include "nockvm/input/protocol.h"
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
@@ -19,6 +21,43 @@
 namespace nockvm::discovery {
 namespace {
 constexpr auto kHandshakeTimeout = std::chrono::seconds(3);
+
+// This machine is always the Slave role when it's the TcpClient side, so
+// every input message received here is meant to be injected locally.
+void dispatch_input_message(uint8_t msg_type, const std::vector<uint8_t>& payload) {
+  using namespace input;
+  switch (msg_type) {
+    case kMsgMouseAbsolute: {
+      int32_t x, y;
+      if (decode_mouse_absolute(payload.data(), payload.size(), x, y)) inject_mouse_absolute(x, y);
+      break;
+    }
+    case kMsgMouseButton: {
+      uint8_t button;
+      bool down;
+      if (decode_mouse_button(payload.data(), payload.size(), button, down)) inject_mouse_button(button, down);
+      break;
+    }
+    case kMsgMouseWheel: {
+      int16_t delta;
+      if (decode_mouse_wheel(payload.data(), payload.size(), delta)) inject_mouse_wheel(delta);
+      break;
+    }
+    case kMsgKey: {
+      uint32_t vk, scancode;
+      bool down, extended;
+      if (decode_key(payload.data(), payload.size(), vk, scancode, down, extended)) inject_key(vk, scancode, down, extended);
+      break;
+    }
+    case kMsgModifierSync: {
+      uint8_t mask;
+      if (decode_modifier_sync(payload.data(), payload.size(), mask)) set_modifiers(mask);
+      break;
+    }
+    default: break;
+  }
+}
+
 }  // namespace
 
 TcpClient::TcpClient(uint64_t own_device_id, std::string peer_ip, uint16_t peer_port, KnownPeers& known_peers)
@@ -160,7 +199,8 @@ void TcpClient::run() {
     std::vector<uint8_t> payload;
     const auto result = channel.receive(msg_type, payload, std::chrono::steady_clock::now() + std::chrono::milliseconds(200));
     if (result == SecureChannel::RecvResult::Closed) break;
-    // Timeout/Error: keep polling running_; Ok: nothing to dispatch on this side yet.
+    if (result == SecureChannel::RecvResult::Ok) dispatch_input_message(msg_type, payload);
+    // Timeout/Error: keep polling running_.
   }
 
   close_socket(sock);
