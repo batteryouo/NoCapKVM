@@ -199,13 +199,55 @@ void TcpServer::run() {
       continue;
     }
 
+    // One SecureChannel per socket for the whole connection, constructed
+    // right after the key exchange it needs -- reused below for both the
+    // re-approval gate (if it applies) and the main session, since a
+    // second SecureChannel over the same ik.keys would restart its nonce
+    // counters at 0 and reuse a nonce the first one already used.
+    SecureChannel channel(client, ik.keys);
+
+    // A device Master itself kicked earlier this session doesn't get to
+    // slide back in silently just because it's still TOFU-trusted --
+    // require a fresh explicit approval (same UI as first-time pairing)
+    // without redoing the raw pubkey exchange, since the key is already
+    // known and was just verified above via the IK handshake itself.
+    if (kicked_this_session_.count(peer_device_id)) {
+      const std::string fingerprint = compute_fingerprint(*trusted_pubkey, own_static_.public_key);
+      {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        status_ = ConnectionInfo{ConnectionState::Pairing, peer_device_id, ip_buf, fingerprint, {}};
+      }
+      pairing_decision_ = PairingDecision::Pending;
+
+      const auto approval_deadline = std::chrono::steady_clock::now() + kPairingApprovalTimeout;
+      PairingDecision decision = PairingDecision::Pending;
+      while (running_.load() && std::chrono::steady_clock::now() < approval_deadline) {
+        decision = pairing_decision_.load();
+        if (decision != PairingDecision::Pending) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+
+      if (decision != PairingDecision::Approved) {
+        // Tell Slave to stop auto-connecting here too, same as a manual
+        // Disconnect -- otherwise auto-connect would just knock again
+        // within seconds and re-show this same prompt indefinitely.
+        uint8_t no_payload = 0;
+        channel.send(kMsgGoAway, &no_payload, 0);
+        close_socket(client);
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        status_ = ConnectionInfo{};
+        continue;
+      }
+
+      kicked_this_session_.erase(peer_device_id);
+    }
+
     {
       std::lock_guard<std::mutex> lock(status_mutex_);
       status_ = ConnectionInfo{ConnectionState::Connected, peer_device_id, ip_buf, "", {}};
       status_.audio_key = ik.keys.recv_key;  // the Slave-to-Master direction's key
     }
 
-    SecureChannel channel(client, ik.keys);
     {
       std::lock_guard<std::mutex> lock(send_mutex_);
       active_channel_ = &channel;
@@ -258,6 +300,16 @@ void TcpServer::run() {
         channel.send(kMsgHeartbeat, &no_payload, 0);
         last_heartbeat_sent = now;
       }
+    }
+
+    // Only an explicit manual Disconnect counts as Master choosing to kick
+    // this device -- a heartbeat timeout or the peer just closing its own
+    // socket means the link died or Slave left on its own, neither of
+    // which should require re-approval next time.
+    if (disconnect_requested_.load()) {
+      uint8_t no_payload = 0;
+      channel.send(kMsgGoAway, &no_payload, 0);
+      kicked_this_session_.insert(peer_device_id);
     }
 
     {

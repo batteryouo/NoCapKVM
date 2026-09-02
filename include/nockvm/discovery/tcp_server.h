@@ -3,6 +3,7 @@
 #include <chrono>
 #include <mutex>
 #include <thread>
+#include <unordered_set>
 #include "nockvm/discovery/connection_types.h"
 #include "nockvm/discovery/known_peers.h"
 #include "nockvm/discovery/noise_primitives.h"
@@ -86,6 +87,13 @@ private:
   std::atomic<PairingDecision> pairing_decision_{PairingDecision::Pending};
   std::atomic<bool> disconnect_requested_{false};
   std::atomic<int64_t> heartbeat_timeout_ms_;
+  // Session-scoped only (never persisted, unrelated to known_peers_'s
+  // permanent TOFU trust): device IDs Master itself disconnected on
+  // purpose. A device in here is still fully trusted, but must be
+  // re-approved (see run()'s post-handshake gate) rather than silently
+  // let back in, until that approval actually happens. Only ever touched
+  // from run()'s own thread, so no locking needed.
+  std::unordered_set<uint64_t> kicked_this_session_;
   std::thread thread_;
   mutable std::mutex status_mutex_;
   ConnectionInfo status_;

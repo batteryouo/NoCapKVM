@@ -18,6 +18,17 @@ constexpr uint8_t kMsgMonitorList = 1;
 // to reset the sender's own "still alive" deadline.
 constexpr uint8_t kMsgHeartbeat = 10;
 
+// Sent by Master right before it closes an active connection on purpose --
+// either the user hit Disconnect, or a previously-kicked (Master-initiated
+// disconnect) device tried to reconnect and was rejected -- as opposed to
+// the connection just dying underneath it (silence timeout, a real socket
+// error). No payload; receiving it tells Slave to stop auto-connecting to
+// this specific Master for the rest of the current session, until the next
+// time a connection to it actually succeeds. Slave disconnecting on its own
+// initiative sends nothing -- Master doesn't need to know, and doesn't
+// change its own trust of that Slave either way.
+constexpr uint8_t kMsgGoAway = 11;
+
 std::vector<uint8_t> encode_monitor_list(const std::vector<display::MonitorInfo>& monitors);
 bool decode_monitor_list(const uint8_t* data, size_t len, std::vector<display::MonitorInfo>& out);
 

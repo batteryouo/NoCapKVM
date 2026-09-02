@@ -247,6 +247,9 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
           status_.master_audio_control_received = true;
           status_.master_audio_control_seq++;
         }
+      } else if (msg_type == kMsgGoAway) {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        status_.go_away_received = true;
       } else if (msg_type != kMsgHeartbeat) {
         dispatch_input_message(msg_type, payload);
       }

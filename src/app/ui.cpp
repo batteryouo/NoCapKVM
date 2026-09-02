@@ -205,7 +205,13 @@ void draw_connection_tab(AppState& state) {
       ImGui::TextUnformatted("Waiting for the Master to approve...");
     } else if (info.state == discovery::ConnectionState::Connected) {
       ImGui::Text("Connected: %s", resolve_peer_name(state, info.peer_device_id, info.peer_ip).c_str());
-      if (ImGui::Button("Disconnect")) state.tcp_client.reset();
+      if (ImGui::Button("Disconnect")) {
+        // "I've had enough of this guy" -- stop auto-connecting to this
+        // one for the rest of the session, but Master's own trust of this
+        // Slave is unaffected (that's Master's call, not Slave's).
+        state.auto_connect_suppressed.insert(info.peer_device_id);
+        state.tcp_client.reset();
+      }
     } else {
       ImGui::TextUnformatted("Connection failed");
     }
