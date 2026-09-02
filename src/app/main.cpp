@@ -49,6 +49,7 @@ int main() {
       case nockvm::app::Screen::RoleSelect: nockvm::app::draw_role_select(state); break;
       case nockvm::app::Screen::Discovery: nockvm::app::draw_discovery(state); break;
       case nockvm::app::Screen::ManageDevices: nockvm::app::draw_manage_devices(state); break;
+      case nockvm::app::Screen::Arrangement: nockvm::app::draw_arrangement(state); break;
     }
 
     ImGui::Render();

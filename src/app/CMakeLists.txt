@@ -30,7 +30,7 @@ target_link_libraries(imgui PUBLIC glfw)
 
 add_executable(nockvm_app main.cpp ui.cpp)
 target_include_directories(nockvm_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(nockvm_app PRIVATE nockvm_common nockvm_discovery imgui glfw)
+target_link_libraries(nockvm_app PRIVATE nockvm_common nockvm_discovery nockvm_topology imgui glfw)
 
 if(WIN32)
   target_link_libraries(nockvm_app PRIVATE opengl32)
