@@ -10,6 +10,12 @@ struct MonitorInfo {
   int32_t width = 0, height = 0;
   bool primary = false;
   std::string name;  // e.g. "\\.\DISPLAY1" (Win32) or the RandR output name (Linux)
+
+  bool operator==(const MonitorInfo& other) const {
+    return x == other.x && y == other.y && width == other.width && height == other.height &&
+           primary == other.primary && name == other.name;
+  }
+  bool operator!=(const MonitorInfo& other) const { return !(*this == other); }
 };
 
 std::vector<MonitorInfo> get_local_monitors();
