@@ -2,9 +2,13 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "nockvm/audio/capture.h"
+#include "nockvm/audio/channel.h"
+#include "nockvm/audio/playback.h"
 #include "nockvm/discovery/announcer.h"
 #include "nockvm/discovery/known_peers.h"
 #include "nockvm/discovery/listener.h"
+#include "nockvm/discovery/platform_socket.h"
 #include "nockvm/discovery/tcp_client.h"
 #include "nockvm/discovery/tcp_server.h"
 #include "nockvm/discovery/types.h"
@@ -43,6 +47,16 @@ struct AppState {
   // check so a stray post-handoff jitter can't immediately bounce it back.
   bool input_just_handed_off = false;
   std::vector<uint32_t> input_held_vks;  // currently-held virtual-key codes, for the on-screen key monitor
+
+  // Audio routing, Slave -> Master (brief §3.3), driven once per frame by
+  // pump_audio() in audio_pump.cpp. Only the pair matching this machine's
+  // current role is ever populated.
+  bool audio_active = false;  // tracks the Connected transition, same idea as input_hook_active
+  std::unique_ptr<audio::AudioPlayback> audio_playback;      // Master only
+  std::unique_ptr<audio::AudioChannel> audio_recv_channel;   // Master only, wraps tcp_server's audio_socket()
+  std::unique_ptr<audio::AudioCapture> audio_capture;        // Slave only
+  std::unique_ptr<audio::AudioChannel> audio_send_channel;   // Slave only
+  socket_t audio_send_socket = kInvalidSocket;                // Slave only; AudioChannel doesn't own the socket
 };
 
 }  // namespace nockvm::app

@@ -16,6 +16,7 @@ add_subdirectory(src/display)
 add_subdirectory(src/topology)
 add_subdirectory(src/input)
 add_subdirectory(src/discovery)
+add_subdirectory(src/audio)
 add_subdirectory(src/app)
 
 enable_testing()

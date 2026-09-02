@@ -31,6 +31,13 @@ public:
   void stop();
 
   uint16_t port() const { return port_; }
+  // The UDP port bound for the Slave-to-Master audio stream, valid as soon
+  // as start() returns (bound alongside the TCP listen socket). The raw
+  // socket is exposed too -- the app layer owns the actual AudioChannel/
+  // AudioPlayback built on top of it, matching how input capture is owned
+  // by the app layer rather than by TcpServer itself.
+  uint16_t audio_port() const { return audio_port_; }
+  socket_t audio_socket() const { return audio_socket_; }
   ConnectionInfo status() const;
 
   // Called from the UI thread to resolve a pending pairing request.
@@ -58,6 +65,8 @@ private:
   KnownPeers& known_peers_;
   socket_t listen_socket_ = kInvalidSocket;
   uint16_t port_ = 0;
+  socket_t audio_socket_ = kInvalidSocket;
+  uint16_t audio_port_ = 0;
   std::atomic<bool> running_{false};
   std::atomic<PairingDecision> pairing_decision_{PairingDecision::Pending};
   std::atomic<bool> disconnect_requested_{false};
