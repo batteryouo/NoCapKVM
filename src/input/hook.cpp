@@ -92,6 +92,13 @@ LRESULT CALLBACK mouse_proc(int code, WPARAM wparam, LPARAM lparam) {
   if (code < 0 || !self) return CallNextHookEx(nullptr, code, wparam, lparam);
 
   auto* info = reinterpret_cast<MSLLHOOKSTRUCT*>(lparam);
+  // Ignore SendInput-synthesized events: without this, testing Master and
+  // Slave as two processes on one machine would have Master's hook fight
+  // its own Slave process's injected moves/clicks (both share one real
+  // desktop/cursor locally, unlike the real two-machine deployment where
+  // each side's input is naturally isolated to its own desktop).
+  if (info->flags & LLMHF_INJECTED) return CallNextHookEx(nullptr, code, wparam, lparam);
+
   const bool suppress = self->suppress_.load();
 
   if (wparam == WM_MOUSEMOVE) {
@@ -134,6 +141,11 @@ LRESULT CALLBACK keyboard_proc(int code, WPARAM wparam, LPARAM lparam) {
   if (code < 0 || !self) return CallNextHookEx(nullptr, code, wparam, lparam);
 
   auto* info = reinterpret_cast<KBDLLHOOKSTRUCT*>(lparam);
+  // See the matching check in mouse_proc: ignore SendInput-synthesized keys
+  // so a same-machine Slave process's own injected keys don't get fought by
+  // Master's hook.
+  if (info->flags & LLKHF_INJECTED) return CallNextHookEx(nullptr, code, wparam, lparam);
+
   const bool down = (wparam == WM_KEYDOWN || wparam == WM_SYSKEYDOWN);
   const bool extended = (info->flags & LLKHF_EXTENDED) != 0;
   self->pending_.keys.push_back({info->vkCode, info->scanCode, down, extended});
