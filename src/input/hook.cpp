@@ -1,6 +1,7 @@
 #include "nockvm/input/hook.h"
 
 #ifdef _WIN32
+#include <algorithm>
 #include <windows.h>
 
 namespace nockvm::input {
@@ -48,10 +49,22 @@ void InputHook::uninstall() {
 }
 
 void InputHook::suppress() {
-  // Center of the whole virtual desktop (spanning all monitors) — guaranteed
-  // interior, not at any physical edge, regardless of monitor layout.
-  const int32_t x = GetSystemMetrics(SM_XVIRTUALSCREEN) + GetSystemMetrics(SM_CXVIRTUALSCREEN) / 2;
-  const int32_t y = GetSystemMetrics(SM_YVIRTUALSCREEN) + GetSystemMetrics(SM_CYVIRTUALSCREEN) / 2;
+  const int32_t vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+  const int32_t vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+  const int32_t vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+  const int32_t vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+  POINT pt{};
+  GetCursorPos(&pt);
+  // Inset a modest amount from wherever the cursor already is (normally
+  // sitting right at the edge that was just crossed) rather than jumping
+  // all the way to the desktop center: keeps the visible move on this
+  // machine's own screen small, while still leaving enough headroom that a
+  // sustained push doesn't immediately re-hit a real edge and lose delta
+  // tracking again (the original bug this recenter technique exists for).
+  constexpr int32_t kInset = 150;
+  const int32_t x = std::clamp(static_cast<int32_t>(pt.x), vx + kInset, vx + vw - 1 - kInset);
+  const int32_t y = std::clamp(static_cast<int32_t>(pt.y), vy + kInset, vy + vh - 1 - kInset);
   // Update anchor/suppress_ BEFORE the SetCursorPos call, not after: if that
   // call synchronously re-enters mouse_proc (observed intermittently), the
   // hook must already see the final state, or its own suppressed-branch

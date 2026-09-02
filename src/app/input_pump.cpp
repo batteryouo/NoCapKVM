@@ -92,13 +92,19 @@ void handle_master_owned(AppState& state, const discovery::ConnectionInfo& info,
       state.input_logical_y = cross.y + (horizontal ? 0 : overshoot);
       state.input_just_handed_off = true;
 
-      int32_t real_x = 0, real_y = 0;
-      input::get_local_cursor_pos(real_x, real_y);
-      debug_log("[B->A] dir=%d perp=%d clamped=(%d,%d) overshoot=%d cross_raw=(%d,%d) sent=(%d,%d) real_master_cursor=(%d,%d)\n",
-                static_cast<int>(bc.direction), bc.perp_pos, bc.clamped_x, bc.clamped_y, overshoot, cross.x, cross.y,
-                state.input_logical_x, state.input_logical_y, real_x, real_y);
+      int32_t real_x_before = 0, real_y_before = 0;
+      input::get_local_cursor_pos(real_x_before, real_y_before);
 
       state.input_hook.suppress();
+
+      int32_t real_x_after = 0, real_y_after = 0;
+      input::get_local_cursor_pos(real_x_after, real_y_after);
+      debug_log(
+          "[B->A] dir=%d perp=%d clamped=(%d,%d) overshoot=%d cross_raw=(%d,%d) sent=(%d,%d) "
+          "real_master_cursor_before_suppress=(%d,%d) real_master_cursor_after_suppress=(%d,%d)\n",
+          static_cast<int>(bc.direction), bc.perp_pos, bc.clamped_x, bc.clamped_y, overshoot, cross.x, cross.y,
+          state.input_logical_x, state.input_logical_y, real_x_before, real_y_before, real_x_after, real_y_after);
+
       const auto payload = input::encode_mouse_absolute(state.input_logical_x, state.input_logical_y);
       state.tcp_server->send_input(input::kMsgMouseAbsolute, payload.data(), payload.size());
       send_modifier_sync(state);
