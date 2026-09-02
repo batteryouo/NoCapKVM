@@ -1,6 +1,7 @@
 #include "ui.h"
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <string>
 #include <imgui.h>
 #include "nockvm/discovery/connection_types.h"
@@ -57,6 +58,23 @@ std::string resolve_peer_name(const AppState& state, uint64_t device_id, const s
     if (peer.device_id == device_id) return peer.hostname;
   }
   return fallback_ip;
+}
+
+// Diagnostic key-monitor labels — covers the escape hotkey's own keys plus
+// their left/right variants; anything else falls back to its raw VK code.
+std::string vk_name(uint32_t vk) {
+  switch (vk) {
+    case 0x1B: return "Esc";
+    case 0x10: case 0xA0: case 0xA1: return "Shift";
+    case 0x11: case 0xA2: case 0xA3: return "Ctrl";
+    case 0x12: case 0xA4: case 0xA5: return "Alt";
+    case 0x5B: case 0x5C: return "Win";
+    default: {
+      char buf[16];
+      std::snprintf(buf, sizeof(buf), "VK 0x%02X", vk);
+      return buf;
+    }
+  }
 }
 
 void draw_monitor_table(const char* table_id, const std::vector<display::MonitorInfo>& monitors) {
@@ -169,6 +187,14 @@ void draw_discovery(AppState& state) {
       if (ImGui::Button("Disconnect")) state.tcp_server->disconnect_current();
       ImGui::Text("Input control: %s", state.input_owned_by_master ? "Master" : "Slave");
       ImGui::TextUnformatted("(Ctrl+Alt+Shift+Esc forces control back to Master)");
+      {
+        std::string held;
+        for (const uint32_t vk : state.input_held_vks) {
+          if (!held.empty()) held += " + ";
+          held += vk_name(vk);
+        }
+        ImGui::Text("Keys held: %s", held.empty() ? "(none)" : held.c_str());
+      }
       ImGui::Spacing();
       ImGui::TextUnformatted("Slave's displays:");
       draw_monitor_table("slave_monitors", info.peer_monitors);

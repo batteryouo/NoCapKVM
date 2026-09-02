@@ -1,4 +1,5 @@
 #include "input_pump.h"
+#include <algorithm>
 #include "nockvm/discovery/connection_types.h"
 #include "nockvm/input/inject.h"
 #include "nockvm/input/protocol.h"
@@ -36,6 +37,7 @@ void deactivate_hook(AppState& state) {
   state.input_hook.uninstall();
   state.input_hook_active = false;
   state.input_owned_by_master = true;
+  state.input_held_vks.clear();
 }
 
 void handle_master_owned(AppState& state, const discovery::ConnectionInfo& info, const input::InputFrame& frame) {
@@ -196,6 +198,19 @@ void pump_input(AppState& state) {
   }
 
   const input::InputFrame frame = state.input_hook.poll();
+
+  // On-screen key monitor (diagnostic): tracks which virtual-key codes are
+  // currently held, independent of ownership, so hotkey detection issues
+  // can be observed directly instead of guessed at.
+  for (const auto& k : frame.keys) {
+    auto& held = state.input_held_vks;
+    const auto it = std::find(held.begin(), held.end(), k.vk);
+    if (k.down) {
+      if (it == held.end()) held.push_back(k.vk);
+    } else if (it != held.end()) {
+      held.erase(it);
+    }
+  }
 
   if (frame.escape_pressed && !state.input_owned_by_master) {
     state.input_hook.resume();
