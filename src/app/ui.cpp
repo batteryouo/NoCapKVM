@@ -322,7 +322,12 @@ void draw_arrangement(AppState& state) {
 
   const ImVec2 canvas_size((combined_max_x - combined_min_x) * kScale + 40.0f,
                             (combined_max_y - combined_min_y) * kScale + 40.0f);
-  ImGui::InvisibleButton("canvas_bg", canvas_size);  // reserves layout space; drawing/interaction happens on top
+  // Dummy (not InvisibleButton): this only needs to reserve layout space so
+  // the auto-resize window sizes correctly. An InvisibleButton here would be
+  // a full-canvas interactive widget submitted before peer_block, so it
+  // would claim mouse-down capture on every click before peer_block (at the
+  // same screen position) ever gets a chance — silently eating the drag.
+  ImGui::Dummy(canvas_size);
   const ImVec2 canvas_origin = ImGui::GetItemRectMin();
 
   auto to_canvas = [&](float real_x, float real_y) {
