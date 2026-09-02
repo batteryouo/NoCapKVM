@@ -37,4 +37,10 @@ if(WIN32)
 else()
   find_package(OpenGL REQUIRED)
   target_link_libraries(nockvm_app PRIVATE OpenGL::GL)
+
+  # main.cpp calls XInitThreads() directly (see its own comment for why) --
+  # nockvm_display/nockvm_clipboard both already require X11 but keep its
+  # include dir PRIVATE to themselves, so it doesn't propagate here.
+  find_package(X11 REQUIRED)
+  target_include_directories(nockvm_app PRIVATE ${X11_INCLUDE_DIR})
 endif()
