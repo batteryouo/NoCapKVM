@@ -24,10 +24,12 @@ uint8_t current_modifier_mask() {
 #endif
 }
 
-void send_modifier_sync(AppState& state) {
-  const auto payload = input::encode_modifier_sync(current_modifier_mask());
+void send_modifier_sync_mask(AppState& state, uint8_t mask) {
+  const auto payload = input::encode_modifier_sync(mask);
   state.tcp_server->send_input(input::kMsgModifierSync, payload.data(), payload.size());
 }
+
+void send_modifier_sync(AppState& state) { send_modifier_sync_mask(state, current_modifier_mask()); }
 
 void deactivate_hook(AppState& state) {
   state.input_hook.resume();
@@ -175,7 +177,18 @@ void pump_input(AppState& state) {
   if (frame.escape_pressed && !state.input_owned_by_master) {
     state.input_hook.resume();
     state.input_owned_by_master = true;
-    send_modifier_sync(state);
+    // resume() with no target leaves the real cursor (and the hook's own
+    // anchor) wherever suppression parked it -- sync logical tracking to
+    // that same real position, or it would keep accumulating from a stale
+    // Slave-space coordinate and corrupt every crossing check after this.
+    state.input_logical_x = state.input_hook.anchor_x_;
+    state.input_logical_y = state.input_hook.anchor_y_;
+    // Force-clear rather than reading current physical state: the user is
+    // still physically holding the hotkey's own modifiers right now, and
+    // will release them after control has already returned to Master (so
+    // those releases never reach Slave) -- reading "currently held" here
+    // would leave Slave's modifiers stuck down instead of freed.
+    send_modifier_sync_mask(state, 0);
     return;
   }
 
