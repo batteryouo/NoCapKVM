@@ -29,7 +29,7 @@ public:
   ConnectionInfo status() const;
 
   // Called from the UI/audio thread to send a message on the active
-  // connection (e.g. kMsgAudioFormat, when the user changes the audio
+  // connection (e.g. kMsgAudioStatus, when the user changes the audio
   // quality setting). No-op (returns false) if there is no connection
   // currently in the Connected state. Mirrors TcpServer::send_input's
   // concurrency reasoning: send/receive use independent SecureChannel

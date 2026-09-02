@@ -26,13 +26,46 @@ void pump_master(AppState& state) {
       stop_master_audio(state);
       state.audio_active = false;
     }
+    state.audio_master_control_sent = false;
     return;
   }
 
   const discovery::ConnectionInfo info = state.tcp_server->status();
-  const bool connected = info.state == discovery::ConnectionState::Connected && info.peer_audio_sample_rate != 0;
+  const bool tcp_connected = info.state == discovery::ConnectionState::Connected;
 
-  if (!connected) {
+  if (!tcp_connected) {
+    if (state.audio_active) {
+      stop_master_audio(state);
+      state.audio_active = false;
+    }
+    state.audio_master_control_sent = false;
+    return;
+  }
+
+  // Push Master's desired settings to Slave -- once as soon as the
+  // connection is up, and again on every subsequent change -- regardless
+  // of whether Slave is currently sending, so the request is waiting for
+  // Slave as soon as it looks.
+  const bool want_send_control = !state.audio_master_control_sent ||
+      state.audio_master_desired_send_enabled != state.audio_master_last_sent_enabled ||
+      (state.audio_master_desired_send_enabled &&
+       state.audio_master_desired_format != state.audio_master_last_sent_format);
+  if (want_send_control) {
+    const auto payload = discovery::encode_audio_settings(
+        state.audio_master_desired_send_enabled, state.audio_master_desired_format.sample_rate,
+        state.audio_master_desired_format.bit_depth);
+    state.tcp_server->send_input(discovery::kMsgAudioControl, payload.data(), payload.size());
+    state.audio_master_control_sent = true;
+    state.audio_master_last_sent_enabled = state.audio_master_desired_send_enabled;
+    state.audio_master_last_sent_format = state.audio_master_desired_format;
+  }
+
+  // peer_audio_send_enabled defaults to false until Slave reports
+  // otherwise, so this doubles as "Slave hasn't said anything yet" and
+  // "Slave explicitly disabled sending" -- both mean don't expect audio.
+  const bool peer_sending = info.peer_audio_send_enabled;
+
+  if (!peer_sending) {
     if (state.audio_active) {
       stop_master_audio(state);
       state.audio_active = false;
@@ -88,13 +121,49 @@ void pump_slave(AppState& state) {
       stop_slave_audio(state);
       state.audio_active = false;
     }
+    state.audio_status_reported = false;
     return;
   }
 
   const discovery::ConnectionInfo info = state.tcp_client->status();
-  const bool connected = info.state == discovery::ConnectionState::Connected && info.peer_audio_port != 0;
+  const bool connected = info.state == discovery::ConnectionState::Connected;
 
-  if (!connected || !state.audio_send_enabled) {
+  if (!connected) {
+    if (state.audio_active) {
+      stop_slave_audio(state);
+      state.audio_active = false;
+    }
+    state.audio_status_reported = false;
+    return;
+  }
+
+  // Apply Master's latest request, if it's new, before anything else --
+  // edge-triggered (by sequence number) so an unchanged request doesn't
+  // re-overwrite a local edit made in between.
+  if (info.master_audio_control_received &&
+      info.master_audio_control_seq != state.audio_last_applied_master_control_seq) {
+    state.audio_send_enabled = info.master_requested_send_enabled;
+    state.audio_desired_format.sample_rate = info.master_requested_sample_rate;
+    state.audio_desired_format.bit_depth = info.master_requested_bit_depth;
+    state.audio_last_applied_master_control_seq = info.master_audio_control_seq;
+  }
+
+  // Report the current actual settings to Master whenever they change --
+  // including disabling sending entirely, so Master's UI never gets stuck
+  // showing a stale format after Slave has actually stopped.
+  const bool status_changed = !state.audio_status_reported ||
+      state.audio_send_enabled != state.audio_last_reported_send_enabled ||
+      (state.audio_send_enabled && state.audio_desired_format != state.audio_last_reported_format);
+  if (status_changed) {
+    const auto payload = discovery::encode_audio_settings(
+        state.audio_send_enabled, state.audio_desired_format.sample_rate, state.audio_desired_format.bit_depth);
+    state.tcp_client->send_message(discovery::kMsgAudioStatus, payload.data(), payload.size());
+    state.audio_status_reported = true;
+    state.audio_last_reported_send_enabled = state.audio_send_enabled;
+    state.audio_last_reported_format = state.audio_desired_format;
+  }
+
+  if (!state.audio_send_enabled || info.peer_audio_port == 0) {
     if (state.audio_active) {
       stop_slave_audio(state);
       state.audio_active = false;
@@ -105,10 +174,10 @@ void pump_slave(AppState& state) {
   const bool format_changed = state.audio_active && state.audio_active_format != state.audio_desired_format;
   if (state.audio_active && !format_changed) return;
 
-  // Either starting fresh or the user changed the quality setting --
-  // either way, capture needs to (re)start with state.audio_desired_format
-  // and Master needs to hear about it via kMsgAudioFormat before more
-  // packets in the new format arrive.
+  // Either starting fresh or the quality setting changed (from either
+  // side) -- either way, capture needs to (re)start with
+  // state.audio_desired_format. Master already heard about the new format
+  // via the status report above.
   if (state.audio_capture) {
     state.audio_capture->stop();
     state.audio_capture.reset();
@@ -123,12 +192,6 @@ void pump_slave(AppState& state) {
     state.audio_send_socket = discovery::create_udp_socket();
     state.audio_send_channel =
         std::make_unique<audio::AudioChannel>(state.audio_send_socket, audio::derive_audio_key(info.audio_key));
-  }
-
-  {
-    const auto payload =
-        discovery::encode_audio_format(state.audio_desired_format.sample_rate, state.audio_desired_format.bit_depth);
-    state.tcp_client->send_message(discovery::kMsgAudioFormat, payload.data(), payload.size());
   }
 
   audio::AudioChannel* channel = state.audio_send_channel.get();

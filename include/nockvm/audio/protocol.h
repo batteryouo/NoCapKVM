@@ -25,7 +25,7 @@ discovery::Key32 derive_audio_key(const discovery::Key32& transport_key);
 // playback.cpp's job, talking to miniaudio); it just moves whatever bytes
 // one side's capture device produced to the other side's playback device.
 // Both sides have to already agree on the format out of band (the
-// discovery layer's kMsgAudioFormat) for the bytes to mean anything.
+// discovery layer's kMsgAudioStatus/kMsgAudioControl) for the bytes to mean anything.
 std::vector<uint8_t> encode_frame(const discovery::Key32& key, uint32_t seq, const uint8_t* data, size_t len);
 
 // Returns false on a malformed packet or AEAD authentication failure.

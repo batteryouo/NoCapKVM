@@ -219,11 +219,13 @@ void TcpServer::run() {
             std::lock_guard<std::mutex> lock(status_mutex_);
             status_.peer_monitors = std::move(monitors);
           }
-        } else if (msg_type == kMsgAudioFormat) {
+        } else if (msg_type == kMsgAudioStatus) {
+          bool send_enabled;
           uint32_t sample_rate;
           uint8_t bit_depth;
-          if (decode_audio_format(payload.data(), payload.size(), sample_rate, bit_depth)) {
+          if (decode_audio_settings(payload.data(), payload.size(), send_enabled, sample_rate, bit_depth)) {
             std::lock_guard<std::mutex> lock(status_mutex_);
+            status_.peer_audio_send_enabled = send_enabled;
             status_.peer_audio_sample_rate = sample_rate;
             status_.peer_audio_bit_depth = bit_depth;
           }
