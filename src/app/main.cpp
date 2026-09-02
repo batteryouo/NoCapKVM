@@ -107,6 +107,7 @@ int main() {
     const auto b = nockvm::topology::compute_bounds(state.local_monitors);
     nockvm::input::configure_pointer_bounds(b.min_x, b.max_x, b.min_y, b.max_y);
   }
+  nockvm::app::resume_last_role_if_any(state);
 
   while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();
