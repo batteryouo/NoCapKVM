@@ -33,6 +33,15 @@ private:
   size_t target_depth_;
   bool started_ = false;
   uint32_t next_seq_ = 0;
+  // Once playback's own next_seq_ races ahead of what the sender has
+  // actually gotten to -- inevitable after any sufficiently long stall
+  // (a burst of loss, or just sender/receiver clock drift accumulating
+  // over a long session) -- every subsequent packet looks "too late" and
+  // gets rejected forever, since next_seq_ only ever increases. Counting
+  // consecutive misses and resetting once it's clearly not just ordinary
+  // jitter/loss lets a fresh run of arriving packets re-synchronize
+  // instead of playback staying silent for the rest of the connection.
+  size_t consecutive_misses_ = 0;
 };
 
 }  // namespace nockvm::audio
