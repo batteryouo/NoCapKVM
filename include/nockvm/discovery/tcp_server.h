@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <thread>
 #include "nockvm/discovery/connection_types.h"
@@ -20,7 +21,16 @@ enum class PairingDecision : uint8_t { Pending, Approved, Rejected };
 // goes back to accepting.
 class TcpServer {
 public:
-  TcpServer(uint64_t own_device_id, KnownPeers& known_peers);
+  // heartbeat_timeout bounds how long the current connection can go without
+  // any traffic (real messages or the periodic heartbeat both count) before
+  // it's treated as dead and force-disconnected -- the same policy as the
+  // emergency-escape hotkey's manual disconnect_current(), just triggered
+  // automatically instead of by a keypress. Live-adjustable afterward via
+  // set_heartbeat_timeout() since this object outlives any single
+  // connection (the user's Discovery-screen setting can change while
+  // already connected).
+  TcpServer(uint64_t own_device_id, KnownPeers& known_peers,
+            std::chrono::milliseconds heartbeat_timeout = std::chrono::seconds(10));
   ~TcpServer();
   TcpServer(const TcpServer&) = delete;
   TcpServer& operator=(const TcpServer&) = delete;
@@ -48,6 +58,11 @@ public:
   // without stopping the listener itself.
   void disconnect_current();
 
+  // Called from the UI thread whenever the user changes the connection
+  // timeout setting. Takes effect on the connection currently being served
+  // (checked once per receive-loop iteration), not just future ones.
+  void set_heartbeat_timeout(std::chrono::milliseconds timeout);
+
   // Called from the UI/input thread to send a message on the active
   // connection (e.g. input events). No-ops (returns false) if there is no
   // connection currently in the Connected state. Safe to call concurrently
@@ -70,6 +85,7 @@ private:
   std::atomic<bool> running_{false};
   std::atomic<PairingDecision> pairing_decision_{PairingDecision::Pending};
   std::atomic<bool> disconnect_requested_{false};
+  std::atomic<int64_t> heartbeat_timeout_ms_;
   std::thread thread_;
   mutable std::mutex status_mutex_;
   ConnectionInfo status_;

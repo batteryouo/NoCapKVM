@@ -33,11 +33,16 @@ struct AppState {
   std::unique_ptr<discovery::Listener> listener;
   std::unique_ptr<discovery::TcpServer> tcp_server;  // Master only
   std::unique_ptr<discovery::TcpClient> tcp_client;  // Slave only, set on Connect click
-  // Slave-only, UI-controlled (Discovery screen's Connection tab): how long
-  // TcpClient's auto-reconnect loop keeps retrying a continuous stretch of
-  // disconnection before giving up, so it doesn't retry forever in the
-  // background once the Master is genuinely gone.
-  int reconnect_timeout_s = 10;
+  // UI-controlled (Discovery screen's Connection tab), shared by both
+  // roles' notion of "how patient to be with a quiet connection": on
+  // Slave, how long TcpClient's auto-reconnect loop keeps retrying a
+  // continuous stretch of disconnection before giving up; on Master, how
+  // long TcpServer tolerates a Connected session with no traffic (real
+  // messages or heartbeats) before force-disconnecting it, the same as the
+  // emergency-escape hotkey's manual disconnect. One shared number rather
+  // than two separate settings since both are really the same question
+  // ("how long is too long to hear nothing") asked from either side.
+  int connection_timeout_s = 10;
 
   // Master-only input capture/handoff state (brief §3.2), driven once per
   // frame by pump_input() in input_pump.cpp.

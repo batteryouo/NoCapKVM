@@ -20,10 +20,19 @@
 namespace nockvm::discovery {
 namespace {
 constexpr auto kHandshakeTimeout = std::chrono::seconds(3);
+// How often a heartbeat is sent during an otherwise-idle connection. Well
+// under any sane heartbeat_timeout so a handful of heartbeats can go
+// missing before the connection is actually declared dead.
+constexpr auto kHeartbeatInterval = std::chrono::milliseconds(1000);
 }  // namespace
 
-TcpServer::TcpServer(uint64_t own_device_id, KnownPeers& known_peers)
-    : own_device_id_(own_device_id), own_static_(get_or_create_static_keypair()), known_peers_(known_peers) {}
+TcpServer::TcpServer(uint64_t own_device_id, KnownPeers& known_peers, std::chrono::milliseconds heartbeat_timeout)
+    : own_device_id_(own_device_id),
+      own_static_(get_or_create_static_keypair()),
+      known_peers_(known_peers),
+      heartbeat_timeout_ms_(heartbeat_timeout.count()) {}
+
+void TcpServer::set_heartbeat_timeout(std::chrono::milliseconds timeout) { heartbeat_timeout_ms_.store(timeout.count()); }
 
 TcpServer::~TcpServer() { stop(); }
 
@@ -206,12 +215,18 @@ void TcpServer::run() {
       channel.send(kMsgAudioPort, payload.data(), payload.size());
     }
     disconnect_requested_ = false;
+    // Both count as "the peer is still there": Ok is an understood message,
+    // Error is still bytes actually arriving (just malformed/undecryptable)
+    // -- only Timeout means nothing arrived this poll.
+    auto last_heard = std::chrono::steady_clock::now();
+    auto last_heartbeat_sent = std::chrono::steady_clock::now();
     while (running_.load() && !disconnect_requested_.load()) {
       uint8_t msg_type;
       std::vector<uint8_t> payload;
       const auto result =
           channel.receive(msg_type, payload, std::chrono::steady_clock::now() + std::chrono::milliseconds(200));
       if (result == SecureChannel::RecvResult::Closed) break;
+      if (result != SecureChannel::RecvResult::Timeout) last_heard = std::chrono::steady_clock::now();
       if (result == SecureChannel::RecvResult::Ok) {
         if (msg_type == kMsgMonitorList) {
           std::vector<display::MonitorInfo> monitors;
@@ -230,8 +245,19 @@ void TcpServer::run() {
             status_.peer_audio_bit_depth = bit_depth;
           }
         }
+        // kMsgHeartbeat itself needs no handling -- last_heard was already
+        // updated above, which is the entire point of it.
       }
       // Timeout/Error: keep polling running_/disconnect_requested_.
+
+      const auto now = std::chrono::steady_clock::now();
+      const auto heartbeat_timeout = std::chrono::milliseconds(heartbeat_timeout_ms_.load());
+      if (now - last_heard >= heartbeat_timeout) break;  // silent peer -- same as a closed connection
+      if (now - last_heartbeat_sent >= kHeartbeatInterval) {
+        uint8_t no_payload = 0;
+        channel.send(kMsgHeartbeat, &no_payload, 0);
+        last_heartbeat_sent = now;
+      }
     }
 
     {
