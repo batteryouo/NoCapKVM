@@ -225,6 +225,11 @@ void write_clipboard(const ClipboardContent& content) {
   }
 }
 
+// Windows clipboard ownership doesn't require an owning process to keep
+// answering anything after SetClipboardData -- the system itself holds
+// and serves the data. Nothing to service.
+void pump_events() {}
+
 #else  // X11
 
 namespace {
@@ -427,6 +432,12 @@ void write_clipboard(const ClipboardContent& content) {
 
   XSetSelectionOwner(s.display, s.clipboard, s.window, CurrentTime);
   XFlush(s.display);
+}
+
+void pump_events() {
+  X11State& s = state();
+  if (!s.display) return;
+  service_pending_events(s);
 }
 
 #endif
