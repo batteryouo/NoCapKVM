@@ -34,6 +34,38 @@ std::string resolve_peer_name(const AppState& state, uint64_t device_id, const s
   return fallback_ip;
 }
 
+void draw_monitor_table(const char* table_id, const std::vector<display::MonitorInfo>& monitors) {
+  if (monitors.empty()) {
+    ImGui::TextUnformatted("(none reported)");
+    return;
+  }
+  if (ImGui::BeginTable(table_id, 6, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg, ImVec2(480, 0))) {
+    ImGui::TableSetupColumn("Name");
+    ImGui::TableSetupColumn("X");
+    ImGui::TableSetupColumn("Y");
+    ImGui::TableSetupColumn("Width");
+    ImGui::TableSetupColumn("Height");
+    ImGui::TableSetupColumn("Primary");
+    ImGui::TableHeadersRow();
+    for (const auto& m : monitors) {
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::TextUnformatted(m.name.c_str());
+      ImGui::TableSetColumnIndex(1);
+      ImGui::Text("%d", m.x);
+      ImGui::TableSetColumnIndex(2);
+      ImGui::Text("%d", m.y);
+      ImGui::TableSetColumnIndex(3);
+      ImGui::Text("%d", m.width);
+      ImGui::TableSetColumnIndex(4);
+      ImGui::Text("%d", m.height);
+      ImGui::TableSetColumnIndex(5);
+      ImGui::TextUnformatted(m.primary ? "yes" : "");
+    }
+    ImGui::EndTable();
+  }
+}
+
 }  // namespace
 
 void draw_role_select(AppState& state) {
@@ -110,6 +142,9 @@ void draw_discovery(AppState& state) {
     } else if (info.state == discovery::ConnectionState::Connected) {
       ImGui::Text("Connected: %s", resolve_peer_name(state, info.peer_device_id, info.peer_ip).c_str());
       if (ImGui::Button("Disconnect")) state.tcp_server->disconnect_current();
+      ImGui::Spacing();
+      ImGui::TextUnformatted("Slave's displays:");
+      draw_monitor_table("slave_monitors", info.peer_monitors);
     } else {
       ImGui::TextUnformatted("Waiting for a Slave to connect...");
     }
@@ -127,6 +162,11 @@ void draw_discovery(AppState& state) {
       ImGui::TextUnformatted("Connection failed");
     }
   }
+
+  ImGui::Spacing();
+  ImGui::Separator();
+  ImGui::TextUnformatted("This machine's displays:");
+  draw_monitor_table("local_monitors", state.local_monitors);
 
   ImGui::Spacing();
   if (ImGui::Button("Manage known devices")) {

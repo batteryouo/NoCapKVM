@@ -1,10 +1,13 @@
 #include "nockvm/discovery/tcp_client.h"
 #include <chrono>
+#include "nockvm/discovery/monitor_protocol.h"
 #include "nockvm/discovery/noise_ik.h"
 #include "nockvm/discovery/pairing.h"
 #include "nockvm/discovery/platform_socket.h"
 #include "nockvm/discovery/protocol.h"
+#include "nockvm/discovery/secure_channel.h"
 #include "nockvm/discovery/static_keys.h"
+#include "nockvm/display/monitor_info.h"
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
@@ -45,7 +48,7 @@ ConnectionInfo TcpClient::status() const {
 void TcpClient::run() {
   {
     std::lock_guard<std::mutex> lock(status_mutex_);
-    status_ = ConnectionInfo{ConnectionState::Connecting, 0, peer_ip_, ""};
+    status_ = ConnectionInfo{ConnectionState::Connecting, 0, peer_ip_, "", {}};
   }
 
   socket_t sock = create_tcp_socket();
@@ -117,7 +120,7 @@ void TcpClient::run() {
     const std::string fingerprint = compute_fingerprint(own_static_.public_key, peer_raw_pubkey);
     {
       std::lock_guard<std::mutex> lock(status_mutex_);
-      status_ = ConnectionInfo{ConnectionState::Pairing, peer_device_id, peer_ip_, fingerprint};
+      status_ = ConnectionInfo{ConnectionState::Pairing, peer_device_id, peer_ip_, fingerprint, {}};
     }
 
     uint8_t decision_byte = kPairingRejected;
@@ -145,13 +148,19 @@ void TcpClient::run() {
 
   {
     std::lock_guard<std::mutex> lock(status_mutex_);
-    status_ = ConnectionInfo{ConnectionState::Connected, peer_device_id, peer_ip_, ""};
+    status_ = ConnectionInfo{ConnectionState::Connected, peer_device_id, peer_ip_, "", {}};
   }
 
+  SecureChannel channel(sock, ik.keys);
+  const std::vector<uint8_t> monitor_payload = encode_monitor_list(display::get_local_monitors());
+  channel.send(kMsgMonitorList, monitor_payload.data(), monitor_payload.size());
+
   while (running_.load()) {
-    uint8_t watch_byte;
-    const int n = recv(sock, reinterpret_cast<char*>(&watch_byte), 1, 0);
-    if (n == 0) break;  // peer closed
+    uint8_t msg_type;
+    std::vector<uint8_t> payload;
+    const auto result = channel.receive(msg_type, payload, std::chrono::steady_clock::now() + std::chrono::milliseconds(200));
+    if (result == SecureChannel::RecvResult::Closed) break;
+    // Timeout/Error: keep polling running_; Ok: nothing to dispatch on this side yet.
   }
 
   close_socket(sock);

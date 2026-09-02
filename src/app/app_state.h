@@ -1,12 +1,14 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <vector>
 #include "nockvm/discovery/announcer.h"
 #include "nockvm/discovery/known_peers.h"
 #include "nockvm/discovery/listener.h"
 #include "nockvm/discovery/tcp_client.h"
 #include "nockvm/discovery/tcp_server.h"
 #include "nockvm/discovery/types.h"
+#include "nockvm/display/monitor_info.h"
 
 namespace nockvm::app {
 
@@ -18,6 +20,7 @@ struct AppState {
   discovery::Role role = discovery::Role::Master;
   uint64_t device_id = 0;
   std::string hostname;
+  std::vector<display::MonitorInfo> local_monitors;  // this machine's own displays, queried once at startup
   discovery::KnownPeers known_peers;  // loaded once at startup, shared by reference
   std::unique_ptr<discovery::Announcer> announcer;
   std::unique_ptr<discovery::Listener> listener;

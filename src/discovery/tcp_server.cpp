@@ -1,10 +1,13 @@
 #include "nockvm/discovery/tcp_server.h"
 #include <chrono>
 #include <thread>
+#include "nockvm/discovery/monitor_protocol.h"
 #include "nockvm/discovery/noise_ik.h"
 #include "nockvm/discovery/pairing.h"
 #include "nockvm/discovery/protocol.h"
+#include "nockvm/discovery/secure_channel.h"
 #include "nockvm/discovery/static_keys.h"
+#include "nockvm/display/monitor_info.h"
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
@@ -126,7 +129,7 @@ void TcpServer::run() {
       const std::string fingerprint = compute_fingerprint(peer_raw_pubkey, own_static_.public_key);
       {
         std::lock_guard<std::mutex> lock(status_mutex_);
-        status_ = ConnectionInfo{ConnectionState::Pairing, peer_device_id, ip_buf, fingerprint};
+        status_ = ConnectionInfo{ConnectionState::Pairing, peer_device_id, ip_buf, fingerprint, {}};
       }
       pairing_decision_ = PairingDecision::Pending;
 
@@ -162,14 +165,25 @@ void TcpServer::run() {
 
     {
       std::lock_guard<std::mutex> lock(status_mutex_);
-      status_ = ConnectionInfo{ConnectionState::Connected, peer_device_id, ip_buf, ""};
+      status_ = ConnectionInfo{ConnectionState::Connected, peer_device_id, ip_buf, "", {}};
     }
 
+    SecureChannel channel(client, ik.keys);
     disconnect_requested_ = false;
     while (running_.load() && !disconnect_requested_.load()) {
-      uint8_t watch_byte;
-      const int n = recv(client, reinterpret_cast<char*>(&watch_byte), 1, 0);
-      if (n == 0) break;  // peer closed
+      uint8_t msg_type;
+      std::vector<uint8_t> payload;
+      const auto result =
+          channel.receive(msg_type, payload, std::chrono::steady_clock::now() + std::chrono::milliseconds(200));
+      if (result == SecureChannel::RecvResult::Closed) break;
+      if (result == SecureChannel::RecvResult::Ok && msg_type == kMsgMonitorList) {
+        std::vector<display::MonitorInfo> monitors;
+        if (decode_monitor_list(payload.data(), payload.size(), monitors)) {
+          std::lock_guard<std::mutex> lock(status_mutex_);
+          status_.peer_monitors = std::move(monitors);
+        }
+      }
+      // Timeout/Error: keep polling running_/disconnect_requested_.
     }
 
     close_socket(client);
