@@ -97,14 +97,6 @@ bool TcpClient::send_message(uint8_t msg_type, const uint8_t* payload, size_t le
   return active_channel_->send(msg_type, payload, len);
 }
 
-bool TcpClient::take_pending_clipboard(ClipboardMessage& out) {
-  std::lock_guard<std::mutex> lock(clipboard_mutex_);
-  if (!pending_clipboard_) return false;
-  out = std::move(*pending_clipboard_);
-  pending_clipboard_.reset();
-  return true;
-}
-
 TcpClient::AttemptOutcome TcpClient::run_once() {
   {
     std::lock_guard<std::mutex> lock(status_mutex_);
@@ -228,16 +220,6 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
   std::vector<display::MonitorInfo> last_sent_monitors = display::get_local_monitors();
   {
     const std::vector<uint8_t> monitor_payload = encode_monitor_list(last_sent_monitors);
-    // send_mutex_ guards every call to channel.send() from here on, this
-    // thread's own included -- not just send_message()'s. SecureChannel::
-    // send() isn't internally thread-safe (send_nonce_ isn't atomic, and it
-    // does two separate socket writes for one frame), so without this any
-    // send_message() call racing one of this thread's own sends (heartbeat,
-    // periodic monitor re-check, ...) could interleave two frames on the
-    // wire and desync the stream for good -- rare with tiny input messages,
-    // but a real risk once messages get big enough (clipboard) to widen the
-    // race window.
-    std::lock_guard<std::mutex> lock(send_mutex_);
     channel.send(kMsgMonitorList, monitor_payload.data(), monitor_payload.size());
   }
 
@@ -272,10 +254,6 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
       } else if (msg_type == kMsgGoAway) {
         std::lock_guard<std::mutex> lock(status_mutex_);
         status_.go_away_received = true;
-      } else if (msg_type == kMsgClipboardText || msg_type == kMsgClipboardImage) {
-        std::lock_guard<std::mutex> lock(clipboard_mutex_);
-        pending_clipboard_ = ClipboardMessage{
-            msg_type == kMsgClipboardText ? ClipboardMsgType::Text : ClipboardMsgType::Jpeg, std::move(payload)};
       } else if (msg_type != kMsgHeartbeat) {
         dispatch_input_message(msg_type, payload);
       }
@@ -286,7 +264,6 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
     if (now - last_heard >= give_up_after_) break;  // silent peer -- same as a closed connection
     if (now - last_heartbeat_sent >= kHeartbeatInterval) {
       uint8_t no_payload = 0;
-      std::lock_guard<std::mutex> lock(send_mutex_);
       channel.send(kMsgHeartbeat, &no_payload, 0);
       last_heartbeat_sent = now;
     }
@@ -300,7 +277,6 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
       std::vector<display::MonitorInfo> current_monitors = display::get_local_monitors();
       if (current_monitors != last_sent_monitors) {
         const std::vector<uint8_t> monitor_payload = encode_monitor_list(current_monitors);
-        std::lock_guard<std::mutex> lock(send_mutex_);
         channel.send(kMsgMonitorList, monitor_payload.data(), monitor_payload.size());
         last_sent_monitors = std::move(current_monitors);
       }

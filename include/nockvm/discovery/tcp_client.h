@@ -2,10 +2,8 @@
 #include <atomic>
 #include <chrono>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <thread>
-#include "nockvm/discovery/clipboard_protocol.h"
 #include "nockvm/discovery/connection_types.h"
 #include "nockvm/discovery/known_peers.h"
 #include "nockvm/discovery/noise_primitives.h"
@@ -47,11 +45,6 @@ public:
   // itself.
   bool send_message(uint8_t msg_type, const uint8_t* payload, size_t len);
 
-  // See TcpServer::take_pending_clipboard's comment for why this is kept
-  // outside ConnectionInfo/status() rather than folded in like
-  // peer_monitors etc.
-  bool take_pending_clipboard(ClipboardMessage& out);
-
 private:
   // Outcome of a single connect-through-disconnect attempt, used by run()
   // to decide whether to retry and how long to back off before doing so.
@@ -75,8 +68,6 @@ private:
   ConnectionInfo status_;
   mutable std::mutex send_mutex_;
   SecureChannel* active_channel_ = nullptr;  // set while Connected, guarded by send_mutex_
-  mutable std::mutex clipboard_mutex_;
-  std::optional<ClipboardMessage> pending_clipboard_;  // guarded by clipboard_mutex_
 };
 
 }  // namespace nockvm::discovery

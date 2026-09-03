@@ -7,7 +7,6 @@
 #include "app_state.h"
 #include "audio_pump.h"
 #include "auto_connect_pump.h"
-#include "clipboard_pump.h"
 #include "input_pump.h"
 #include "nockvm/discovery/identity.h"
 #include "nockvm/display/monitor_info.h"
@@ -19,8 +18,6 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 #include <windows.h>
-#else
-#include <X11/Xlib.h>
 #endif
 
 namespace {
@@ -80,17 +77,6 @@ void uninstall_raw_input(GLFWwindow* window) {
 }  // namespace
 
 int main() {
-#ifndef _WIN32
-  // Xlib is not thread-safe by default. This process makes Xlib calls
-  // from two different threads on Linux -- nockvm::display's monitor
-  // polling (on TcpClient's background thread, see tcp_client.cpp's
-  // periodic get_local_monitors() re-check) and nockvm::clipboard's X11
-  // implementation (driven from this thread by clipboard_pump.cpp) --
-  // without ever having declared that. XInitThreads() must be called
-  // before any other Xlib call in the process, GLFW's own X11 backend's
-  // internal calls during glfwInit() included, hence right here first.
-  XInitThreads();
-#endif
   glfwSetErrorCallback(glfw_error_callback);
   if (!glfwInit()) return 1;
 
@@ -128,7 +114,6 @@ int main() {
     nockvm::app::pump_input(state);
     nockvm::app::pump_audio(state);
     nockvm::app::pump_auto_connect(state);
-    nockvm::app::pump_clipboard(state);
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
