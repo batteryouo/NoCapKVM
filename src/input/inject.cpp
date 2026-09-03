@@ -91,6 +91,9 @@ void configure_pointer_bounds(int32_t, int32_t, int32_t, int32_t) {}
 
 #else  // !_WIN32
 
+#include <cstdio>
+#include <cstring>
+
 #include <libevdev/libevdev-uinput.h>
 #include <libevdev/libevdev.h>
 
@@ -119,18 +122,31 @@ libevdev_uinput* create_device(const char* name, void (*configure)(libevdev*)) {
   configure(dev);
 
   libevdev_uinput* uidev = nullptr;
-  if (libevdev_uinput_create_from_device(dev, LIBEVDEV_UINPUT_OPEN_MANAGED, &uidev) < 0) uidev = nullptr;
+  const int rc = libevdev_uinput_create_from_device(dev, LIBEVDEV_UINPUT_OPEN_MANAGED, &uidev);
   libevdev_free(dev);
+  if (rc < 0) {
+    // Silently swallowing this used to mean every subsequent inject_*()
+    // call on this device dropped its event forever with zero visible
+    // sign anything was wrong -- if this fails once (e.g. a transient
+    // permissions/module-load race right at startup) print it so a
+    // real-hardware repro is actually diagnosable from the console.
+    std::fprintf(stderr, "nockvm: failed to create uinput device \"%s\": %s (check /dev/uinput permissions)\n", name,
+                 std::strerror(-rc));
+    return nullptr;
+  }
   return uidev;
 }
 
-// Lazily created, kept open for the process's lifetime -- the kernel tears
-// the virtual device down when this closes at process exit.
+// Lazily created, kept open for the process's lifetime once it succeeds --
+// the kernel tears the virtual device down when this closes at process
+// exit. Deliberately retries on every call while dev is still null (not
+// cached as a permanent failure): the one real failure mode seen in
+// practice is a transient race at process start, not a persistent one, so
+// giving up forever after a single failed attempt would turn a one-off
+// hiccup into "input never works again until the whole app restarts".
 libevdev_uinput* ensure_keyboard_dev() {
   static libevdev_uinput* dev = nullptr;
-  static bool tried = false;
-  if (tried) return dev;
-  tried = true;
+  if (dev) return dev;
   dev = create_device("NoCapKVM Virtual Keyboard", [](libevdev* d) {
     libevdev_enable_event_type(d, EV_KEY);
     for (int code = 0; code <= KEY_MAX; ++code) libevdev_enable_event_code(d, EV_KEY, code, nullptr);
@@ -140,10 +156,14 @@ libevdev_uinput* ensure_keyboard_dev() {
 
 libevdev_uinput* ensure_mouse_dev() {
   static libevdev_uinput* dev = nullptr;
-  static bool tried = false;
-  if (tried) return dev;
-  tried = true;
+  if (dev) return dev;
   dev = create_device("NoCapKVM Virtual Mouse", [](libevdev* d) {
+    // Without this, libinput has nothing telling it this absolute-axis
+    // device is a pointer rather than e.g. a touchscreen/tablet, which is
+    // a real source of inconsistent behavior across compositors -- some
+    // still move the cursor without it, some don't.
+    libevdev_enable_property(d, INPUT_PROP_POINTER);
+
     libevdev_enable_event_type(d, EV_KEY);
     libevdev_enable_event_code(d, EV_KEY, BTN_LEFT, nullptr);
     libevdev_enable_event_code(d, EV_KEY, BTN_RIGHT, nullptr);
