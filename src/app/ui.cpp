@@ -8,6 +8,7 @@
 #include "nockvm/discovery/identity.h"
 #include "nockvm/discovery/types.h"
 #include "nockvm/topology/crossing.h"
+#include "quit.h"
 
 namespace nockvm::app {
 namespace {
@@ -33,6 +34,13 @@ void begin_fullscreen_window() {
                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
                    ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
                    ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_HorizontalScrollbar);
+
+  // Present on every screen: now that the OS close button just hides the
+  // window to the tray instead of quitting (see tray.h), this is the app's
+  // only in-UI way to actually end the process.
+  constexpr float kExitWidth = 60.0f;
+  ImGui::SetCursorPosX(ImGui::GetWindowWidth() - kExitWidth - 12.0f);
+  if (ImGui::Button("Exit", ImVec2(kExitWidth, 0))) nockvm::app::request_quit();
 }
 
 void start_discovery(AppState& state, discovery::Role role) {

@@ -28,13 +28,16 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 target_link_libraries(imgui PUBLIC glfw)
 
+set(NOCKVM_APP_COMMON_SOURCES main.cpp ui.cpp input_pump.cpp audio_pump.cpp auto_connect_pump.cpp quit.cpp)
+
 if(WIN32)
   # WIN32 flag drops the console subsystem so the app runs windowed-only;
   # the tray icon (src/app/tray.cpp) becomes the only way to reach it once
-  # the main window is hidden.
-  add_executable(nockvm_app WIN32 main.cpp ui.cpp input_pump.cpp audio_pump.cpp auto_connect_pump.cpp tray.cpp)
+  # the main window is hidden. app.rc embeds res/icons/NoCapKVM.ico as both
+  # the tray icon and the .exe's own Explorer/taskbar icon.
+  add_executable(nockvm_app WIN32 ${NOCKVM_APP_COMMON_SOURCES} tray.cpp app.rc)
 else()
-  add_executable(nockvm_app main.cpp ui.cpp input_pump.cpp audio_pump.cpp auto_connect_pump.cpp)
+  add_executable(nockvm_app ${NOCKVM_APP_COMMON_SOURCES})
 endif()
 target_include_directories(nockvm_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(nockvm_app PRIVATE nockvm_common nockvm_discovery nockvm_topology nockvm_input nockvm_audio imgui glfw)
