@@ -227,6 +227,17 @@ std::optional<ClipboardContent> read_clipboard() {
   return result;
 }
 
+bool clipboard_changed() {
+  // GetClipboardSequenceNumber() needs no OpenClipboard call and increments
+  // on every successful SetClipboardData system-wide -- cheap enough to
+  // call every poll tick, unlike actually reading the content.
+  static DWORD last_seq = static_cast<DWORD>(-1);
+  const DWORD seq = GetClipboardSequenceNumber();
+  if (seq == last_seq) return false;
+  last_seq = seq;
+  return true;
+}
+
 void write_clipboard(const ClipboardContent& content) {
   if (content.type == ContentType::Text) {
     write_text(content.data);
@@ -477,6 +488,12 @@ void pump_events() {
   if (!s.display) return;
   service_pending_events(s);
 }
+
+// No cheap "has the selection changed" signal exists on X11 the way
+// GetClipboardSequenceNumber() does on Windows -- always say yes, so
+// read_clipboard() (and its own dedup against last-seen/last-applied
+// content) stays the source of truth here, just without a fast path.
+bool clipboard_changed() { return true; }
 
 #endif
 

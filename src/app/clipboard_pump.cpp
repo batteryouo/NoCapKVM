@@ -39,6 +39,15 @@ void sync_clipboard(AppState& state, bool connected, SendFn&& send, TakeFn&& tak
   if (now - state.clipboard_last_check < kPollInterval) return;
   state.clipboard_last_check = now;
 
+  // Cheap pre-check before paying for the real read: without this, an
+  // image sitting on the clipboard got fully re-decoded and re-encoded to
+  // JPEG on every single poll tick forever, not just once when it actually
+  // changed. That's expensive enough on the main thread to delay the
+  // WH_MOUSE_LL hook's callback, which Windows notices system-wide --
+  // reported as the whole OS's mouse visibly stuttering every ~1s for as
+  // long as a large image stayed on the clipboard.
+  if (!clipboard::clipboard_changed()) return;
+
   std::optional<clipboard::ClipboardContent> current = clipboard::read_clipboard();
   if (!current) return;
   if (state.clipboard_last_seen_valid && *current == state.clipboard_last_seen) return;  // unchanged

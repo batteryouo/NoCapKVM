@@ -24,6 +24,17 @@ struct ClipboardContent {
 // protocol, which is far more expensive than a plain memory read.
 std::optional<ClipboardContent> read_clipboard();
 
+// Cheap check for whether the OS clipboard's content has actually changed
+// since the last call to this function returned true (or since process
+// start, the first time it's called). On Windows this is a single
+// GetClipboardSequenceNumber() comparison -- callers should use it to
+// avoid calling the much more expensive read_clipboard() (a full pixel
+// decode + JPEG re-encode for an image) on every poll tick just to find
+// out nothing changed. Platforms with no equivalent cheap signal always
+// return true, so callers stay correct (just without the fast path) --
+// read_clipboard()'s own result is still the source of truth either way.
+bool clipboard_changed();
+
 // Overwrites the OS clipboard with the given content, decoding a Jpeg back
 // into a format other native apps can actually paste (a Windows CF_DIB
 // bitmap, or -- on X11 -- becoming the CLIPBOARD selection owner and
