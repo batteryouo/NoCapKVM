@@ -28,7 +28,7 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 target_link_libraries(imgui PUBLIC glfw)
 
-set(NOCKVM_APP_COMMON_SOURCES main.cpp ui.cpp input_pump.cpp audio_pump.cpp auto_connect_pump.cpp quit.cpp)
+set(NOCKVM_APP_COMMON_SOURCES main.cpp ui.cpp input_pump.cpp audio_pump.cpp auto_connect_pump.cpp quit.cpp clipboard_pump.cpp)
 
 if(WIN32)
   # WIN32 flag drops the console subsystem so the app runs windowed-only;
@@ -43,7 +43,7 @@ else()
   add_executable(nockvm_app ${NOCKVM_APP_COMMON_SOURCES} tray_linux.cpp ico_decode.cpp)
 endif()
 target_include_directories(nockvm_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(nockvm_app PRIVATE nockvm_common nockvm_discovery nockvm_topology nockvm_input nockvm_audio imgui glfw)
+target_link_libraries(nockvm_app PRIVATE nockvm_common nockvm_discovery nockvm_topology nockvm_input nockvm_audio nockvm_clipboard imgui glfw)
 
 if(WIN32)
   target_link_libraries(nockvm_app PRIVATE opengl32 shell32)
@@ -54,4 +54,10 @@ else()
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(DBUS REQUIRED IMPORTED_TARGET dbus-1)
   target_link_libraries(nockvm_app PRIVATE PkgConfig::DBUS)
+
+  # main.cpp calls XInitThreads() directly (see its own comment for why) --
+  # nockvm_display/nockvm_clipboard both already require X11 but keep its
+  # include dir PRIVATE to themselves, so it doesn't propagate here.
+  find_package(X11 REQUIRED)
+  target_include_directories(nockvm_app PRIVATE ${X11_INCLUDE_DIR})
 endif()
