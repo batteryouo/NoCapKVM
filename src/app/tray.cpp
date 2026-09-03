@@ -8,6 +8,8 @@
 
 #include <shellapi.h>
 
+#include "quit.h"
+
 namespace nockvm::app {
 
 namespace {
@@ -17,7 +19,6 @@ constexpr UINT_PTR kExitMenuCommand = 1;
 
 NOTIFYICONDATAW g_nid{};
 GLFWwindow* g_window = nullptr;
-bool g_quit_requested = false;
 
 void restore_window() {
   if (!g_window) return;
@@ -48,10 +49,9 @@ void install_tray(GLFWwindow* window) {
   g_nid.uID = 1;
   g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
   g_nid.uCallbackMessage = kTrayCallbackMessage;
-  // IDI_APPLICATION resolves to the ANSI MAKEINTRESOURCEA in this
-  // (non-UNICODE-defined) build; spell out the wide resource id directly
-  // so it matches LoadIconW's LPCWSTR parameter.
-  g_nid.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
+  // Resource ID 101, embedded from res/icons/NoCapKVM.ico via app.rc -- also
+  // doubles as the .exe's own Explorer/taskbar icon.
+  g_nid.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
   lstrcpynW(g_nid.szTip, L"NoCapKVM", ARRAYSIZE(g_nid.szTip));
   Shell_NotifyIconW(NIM_ADD, &g_nid);
 }
@@ -73,13 +73,11 @@ bool tray_handle_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     return true;
   }
   if (msg == WM_COMMAND && LOWORD(wparam) == kExitMenuCommand) {
-    g_quit_requested = true;
+    request_quit();
     return true;
   }
   return false;
 }
-
-bool tray_quit_requested() { return g_quit_requested; }
 
 }  // namespace nockvm::app
 

@@ -1,0 +1,4 @@
+// Resource ID 101 is loaded by name from tray.cpp (LoadIconW) and doubles
+// as the .exe's own Explorer/taskbar icon -- windres/the linker picks the
+// lowest-ID icon group in the resource script for that automatically.
+101 ICON "../../res/icons/NoCapKVM.ico"

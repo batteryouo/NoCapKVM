@@ -12,6 +12,7 @@
 #include "nockvm/display/monitor_info.h"
 #include "nockvm/input/inject.h"
 #include "nockvm/topology/crossing.h"
+#include "quit.h"
 #include "tray.h"
 #include "ui.h"
 
@@ -120,7 +121,7 @@ int main() {
   }
   nockvm::app::resume_last_role_if_any(state);
 
-  while (!glfwWindowShouldClose(window) && !nockvm::app::tray_quit_requested()) {
+  while (!glfwWindowShouldClose(window) && !nockvm::app::quit_requested()) {
     glfwPollEvents();
     nockvm::app::pump_input(state);
     nockvm::app::pump_audio(state);
