@@ -12,6 +12,7 @@
 #include "nockvm/display/monitor_info.h"
 #include "nockvm/input/inject.h"
 #include "nockvm/topology/crossing.h"
+#include "tray.h"
 #include "ui.h"
 
 #ifdef _WIN32
@@ -49,7 +50,15 @@ LRESULT CALLBACK raw_input_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
       }
     }
   }
+  nockvm::app::tray_handle_message(hwnd, msg, wparam, lparam);
   return CallWindowProcW(g_original_wndproc, hwnd, msg, wparam, lparam);
+}
+
+void window_close_callback(GLFWwindow* window) {
+  // Treat the X button as "hide to tray", not "quit" -- only the tray's
+  // own Exit menu item (tray_quit_requested()) ends the process.
+  glfwSetWindowShouldClose(window, GLFW_FALSE);
+  glfwHideWindow(window);
 }
 
 void install_raw_input(GLFWwindow* window) {
@@ -90,6 +99,8 @@ int main() {
 
 #ifdef _WIN32
   install_raw_input(window);
+  glfwSetWindowCloseCallback(window, window_close_callback);
+  nockvm::app::install_tray(window);
 #endif
 
   IMGUI_CHECKVERSION();
@@ -109,7 +120,7 @@ int main() {
   }
   nockvm::app::resume_last_role_if_any(state);
 
-  while (!glfwWindowShouldClose(window)) {
+  while (!glfwWindowShouldClose(window) && !nockvm::app::tray_quit_requested()) {
     glfwPollEvents();
     nockvm::app::pump_input(state);
     nockvm::app::pump_audio(state);
@@ -148,6 +159,7 @@ int main() {
 
 #ifdef _WIN32
   uninstall_raw_input(window);
+  nockvm::app::uninstall_tray();
 #endif
 
   glfwDestroyWindow(window);
