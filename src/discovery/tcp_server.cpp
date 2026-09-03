@@ -232,7 +232,10 @@ void TcpServer::run() {
         // Disconnect -- otherwise auto-connect would just knock again
         // within seconds and re-show this same prompt indefinitely.
         uint8_t no_payload = 0;
-        channel.send(kMsgGoAway, &no_payload, 0);
+        {
+          std::lock_guard<std::mutex> lock(send_mutex_);
+          channel.send(kMsgGoAway, &no_payload, 0);
+        }
         close_socket(client);
         std::lock_guard<std::mutex> lock(status_mutex_);
         status_ = ConnectionInfo{};
@@ -254,6 +257,14 @@ void TcpServer::run() {
     }
     {
       const auto payload = encode_audio_port(audio_port_);
+      // send_mutex_ guards every call to channel.send() from here on, this
+      // thread's own included -- not just send_input()'s. SecureChannel::
+      // send() isn't internally thread-safe (send_nonce_ isn't atomic, and
+      // it does two separate socket writes for one frame), so without this
+      // any send_input() call racing one of this thread's own sends
+      // (heartbeat, go-away, ...) could interleave two frames on the wire
+      // and desync the stream for good.
+      std::lock_guard<std::mutex> lock(send_mutex_);
       channel.send(kMsgAudioPort, payload.data(), payload.size());
     }
     disconnect_requested_ = false;
@@ -297,6 +308,7 @@ void TcpServer::run() {
       if (now - last_heard >= heartbeat_timeout) break;  // silent peer -- same as a closed connection
       if (now - last_heartbeat_sent >= kHeartbeatInterval) {
         uint8_t no_payload = 0;
+        std::lock_guard<std::mutex> lock(send_mutex_);
         channel.send(kMsgHeartbeat, &no_payload, 0);
         last_heartbeat_sent = now;
       }
@@ -308,7 +320,10 @@ void TcpServer::run() {
     // which should require re-approval next time.
     if (disconnect_requested_.load()) {
       uint8_t no_payload = 0;
-      channel.send(kMsgGoAway, &no_payload, 0);
+      {
+        std::lock_guard<std::mutex> lock(send_mutex_);
+        channel.send(kMsgGoAway, &no_payload, 0);
+      }
       kicked_this_session_.insert(peer_device_id);
     }
 
