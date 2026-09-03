@@ -97,6 +97,14 @@ bool TcpClient::send_message(uint8_t msg_type, const uint8_t* payload, size_t le
   return active_channel_->send(msg_type, payload, len);
 }
 
+bool TcpClient::take_pending_clipboard(ClipboardMessage& out) {
+  std::lock_guard<std::mutex> lock(clipboard_mutex_);
+  if (!pending_clipboard_) return false;
+  out = std::move(*pending_clipboard_);
+  pending_clipboard_.reset();
+  return true;
+}
+
 TcpClient::AttemptOutcome TcpClient::run_once() {
   {
     std::lock_guard<std::mutex> lock(status_mutex_);
@@ -262,6 +270,10 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
       } else if (msg_type == kMsgGoAway) {
         std::lock_guard<std::mutex> lock(status_mutex_);
         status_.go_away_received = true;
+      } else if (msg_type == kMsgClipboardText || msg_type == kMsgClipboardImage) {
+        std::lock_guard<std::mutex> lock(clipboard_mutex_);
+        pending_clipboard_ = ClipboardMessage{
+            msg_type == kMsgClipboardText ? ClipboardMsgType::Text : ClipboardMsgType::Jpeg, std::move(payload)};
       } else if (msg_type != kMsgHeartbeat) {
         dispatch_input_message(msg_type, payload);
       }
