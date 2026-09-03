@@ -54,8 +54,18 @@ std::optional<ClipboardContent> read_text() {
   std::optional<ClipboardContent> result;
   const int len = WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
   if (len > 0) {
-    std::vector<uint8_t> utf8(static_cast<size_t>(len - 1));  // drop the trailing NUL
+    // len (from cchWideChar == -1) includes the trailing NUL, and the
+    // second call below is also told cchWideChar == -1, so it writes that
+    // same NUL -- the destination buffer has to actually be len bytes, not
+    // len-1, or this writes one byte past the end of the vector's
+    // allocation. (This used to allocate len-1 directly and pass len as
+    // cbMultiByte anyway: a real 1-byte heap buffer overflow on every text
+    // clipboard read, corrupting the heap silently and crashing later on
+    // an unrelated allocation -- reproduced locally by writing clipboard
+    // text and immediately reading it back, which crashed consistently.)
+    std::vector<uint8_t> utf8(static_cast<size_t>(len));
     WideCharToMultiByte(CP_UTF8, 0, wide, -1, reinterpret_cast<char*>(utf8.data()), len, nullptr, nullptr);
+    utf8.resize(static_cast<size_t>(len - 1));  // drop the trailing NUL now that it was safely written
     result = ClipboardContent{ContentType::Text, std::move(utf8)};
   }
   GlobalUnlock(h);
