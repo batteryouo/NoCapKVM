@@ -105,14 +105,6 @@ bool TcpServer::send_input(uint8_t msg_type, const uint8_t* payload, size_t len)
   return active_channel_->send(msg_type, payload, len);
 }
 
-bool TcpServer::take_pending_clipboard(ClipboardMessage& out) {
-  std::lock_guard<std::mutex> lock(clipboard_mutex_);
-  if (!pending_clipboard_) return false;
-  out = std::move(*pending_clipboard_);
-  pending_clipboard_.reset();
-  return true;
-}
-
 void TcpServer::run() {
   while (running_.load()) {
     if (!wait_readable(listen_socket_, std::chrono::milliseconds(200))) continue;
@@ -240,10 +232,7 @@ void TcpServer::run() {
         // Disconnect -- otherwise auto-connect would just knock again
         // within seconds and re-show this same prompt indefinitely.
         uint8_t no_payload = 0;
-        {
-          std::lock_guard<std::mutex> lock(send_mutex_);
-          channel.send(kMsgGoAway, &no_payload, 0);
-        }
+        channel.send(kMsgGoAway, &no_payload, 0);
         close_socket(client);
         std::lock_guard<std::mutex> lock(status_mutex_);
         status_ = ConnectionInfo{};
@@ -265,16 +254,6 @@ void TcpServer::run() {
     }
     {
       const auto payload = encode_audio_port(audio_port_);
-      // send_mutex_ guards every call to channel.send() from here on, this
-      // thread's own included -- not just send_input()'s. SecureChannel::
-      // send() isn't internally thread-safe (send_nonce_ isn't atomic, and
-      // it does two separate socket writes for one frame), so without this
-      // any send_input() call racing one of this thread's own sends
-      // (heartbeat, go-away, ...) could interleave two frames on the wire
-      // and desync the stream for good -- rare with tiny input messages,
-      // but a real risk once messages get big enough (clipboard) to widen
-      // the race window.
-      std::lock_guard<std::mutex> lock(send_mutex_);
       channel.send(kMsgAudioPort, payload.data(), payload.size());
     }
     disconnect_requested_ = false;
@@ -307,14 +286,6 @@ void TcpServer::run() {
             status_.peer_audio_sample_rate = sample_rate;
             status_.peer_audio_bit_depth = bit_depth;
           }
-        } else if (msg_type == kMsgClipboardText || msg_type == kMsgClipboardImage) {
-          // Only the latest matters -- if two arrive before the app layer
-          // gets around to calling take_pending_clipboard(), overwriting
-          // rather than queuing is exactly right (same reasoning as every
-          // other dirty-check-before-send state in this codebase).
-          std::lock_guard<std::mutex> lock(clipboard_mutex_);
-          pending_clipboard_ = ClipboardMessage{
-              msg_type == kMsgClipboardText ? ClipboardMsgType::Text : ClipboardMsgType::Jpeg, std::move(payload)};
         }
         // kMsgHeartbeat itself needs no handling -- last_heard was already
         // updated above, which is the entire point of it.
@@ -326,7 +297,6 @@ void TcpServer::run() {
       if (now - last_heard >= heartbeat_timeout) break;  // silent peer -- same as a closed connection
       if (now - last_heartbeat_sent >= kHeartbeatInterval) {
         uint8_t no_payload = 0;
-        std::lock_guard<std::mutex> lock(send_mutex_);
         channel.send(kMsgHeartbeat, &no_payload, 0);
         last_heartbeat_sent = now;
       }
@@ -338,10 +308,7 @@ void TcpServer::run() {
     // which should require re-approval next time.
     if (disconnect_requested_.load()) {
       uint8_t no_payload = 0;
-      {
-        std::lock_guard<std::mutex> lock(send_mutex_);
-        channel.send(kMsgGoAway, &no_payload, 0);
-      }
+      channel.send(kMsgGoAway, &no_payload, 0);
       kicked_this_session_.insert(peer_device_id);
     }
 
