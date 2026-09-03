@@ -58,6 +58,15 @@ void sync_clipboard(AppState& state, bool connected, SendFn&& send, TakeFn&& tak
 }  // namespace
 
 void pump_clipboard(AppState& state) {
+  // Must run regardless of connection state -- content applied by an
+  // earlier write_clipboard() call keeps sitting on the OS clipboard (and,
+  // on X11, this process keeps owning the selection) even after
+  // disconnecting. Without this, another app's paste request for it would
+  // never get a reply once !connected made the rest of this function
+  // return early, effectively hanging that other app's clipboard access
+  // until this one was closed.
+  clipboard::pump_events();
+
   if (state.role == discovery::Role::Master) {
     if (!state.tcp_server) {
       state.clipboard_last_seen_valid = false;

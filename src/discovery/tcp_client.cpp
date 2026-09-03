@@ -234,7 +234,9 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
     // does two separate socket writes for one frame), so without this any
     // send_message() call racing one of this thread's own sends (heartbeat,
     // periodic monitor re-check, ...) could interleave two frames on the
-    // wire and desync the stream for good.
+    // wire and desync the stream for good -- rare with tiny input messages,
+    // but a real risk once messages get big enough (clipboard) to widen the
+    // race window.
     std::lock_guard<std::mutex> lock(send_mutex_);
     channel.send(kMsgMonitorList, monitor_payload.data(), monitor_payload.size());
   }
