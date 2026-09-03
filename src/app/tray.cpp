@@ -61,6 +61,11 @@ void uninstall_tray() {
   g_window = nullptr;
 }
 
+// Windows tray events arrive through the window's own message pump
+// (tray_handle_message, called from raw_input_wndproc in main.cpp) --
+// nothing to poll here.
+void pump_tray() {}
+
 bool tray_handle_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   if (msg == kTrayCallbackMessage) {
     // NOTIFYICONDATA's default (unversioned) callback ABI: lParam carries

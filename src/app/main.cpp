@@ -26,6 +26,13 @@ namespace {
 
 void glfw_error_callback(int error, const char* description) { std::fprintf(stderr, "GLFW error %d: %s\n", error, description); }
 
+void window_close_callback(GLFWwindow* window) {
+  // Treat the X button as "hide to tray", not "quit" -- only the tray's
+  // own quit trigger (request_quit(), see quit.h) ends the process.
+  glfwSetWindowShouldClose(window, GLFW_FALSE);
+  glfwHideWindow(window);
+}
+
 #ifdef _WIN32
 WNDPROC g_original_wndproc = nullptr;
 
@@ -53,13 +60,6 @@ LRESULT CALLBACK raw_input_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
   }
   nockvm::app::tray_handle_message(hwnd, msg, wparam, lparam);
   return CallWindowProcW(g_original_wndproc, hwnd, msg, wparam, lparam);
-}
-
-void window_close_callback(GLFWwindow* window) {
-  // Treat the X button as "hide to tray", not "quit" -- only the tray's
-  // own Exit menu item (tray_quit_requested()) ends the process.
-  glfwSetWindowShouldClose(window, GLFW_FALSE);
-  glfwHideWindow(window);
 }
 
 void install_raw_input(GLFWwindow* window) {
@@ -100,9 +100,9 @@ int main() {
 
 #ifdef _WIN32
   install_raw_input(window);
+#endif
   glfwSetWindowCloseCallback(window, window_close_callback);
   nockvm::app::install_tray(window);
-#endif
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -126,6 +126,7 @@ int main() {
     nockvm::app::pump_input(state);
     nockvm::app::pump_audio(state);
     nockvm::app::pump_auto_connect(state);
+    nockvm::app::pump_tray();
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
@@ -160,8 +161,8 @@ int main() {
 
 #ifdef _WIN32
   uninstall_raw_input(window);
-  nockvm::app::uninstall_tray();
 #endif
+  nockvm::app::uninstall_tray();
 
   glfwDestroyWindow(window);
   glfwTerminate();
