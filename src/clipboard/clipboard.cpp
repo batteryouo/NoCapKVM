@@ -379,6 +379,25 @@ bool convert_selection(X11State& s, Atom target, std::vector<uint8_t>& out) {
   return false;
 }
 
+// Legacy STRING data is Latin-1, not UTF-8 -- our wire format is
+// declared UTF-8 (write_text() on the Windows side decodes it as such),
+// so a source that only answers STRING (not every terminal/app supports
+// UTF8_STRING, especially older or more minimal ones) needs converting
+// rather than being passed through byte-for-byte.
+std::string latin1_to_utf8(const std::vector<uint8_t>& latin1) {
+  std::string out;
+  out.reserve(latin1.size());
+  for (uint8_t b : latin1) {
+    if (b < 0x80) {
+      out.push_back(static_cast<char>(b));
+    } else {
+      out.push_back(static_cast<char>(0xC0 | (b >> 6)));
+      out.push_back(static_cast<char>(0x80 | (b & 0x3F)));
+    }
+  }
+  return out;
+}
+
 }  // namespace
 
 std::optional<ClipboardContent> read_clipboard() {
@@ -395,6 +414,15 @@ std::optional<ClipboardContent> read_clipboard() {
 
   std::vector<uint8_t> bytes;
   if (convert_selection(s, s.utf8_string, bytes)) return ClipboardContent{ContentType::Text, std::move(bytes)};
+
+  // Fall back to the legacy target -- not every source answers
+  // UTF8_STRING (plenty of terminals/apps only ever offer STRING), and
+  // without this fallback those sources' copies would never be seen at
+  // all rather than just being handled less richly.
+  if (convert_selection(s, XA_STRING, bytes)) {
+    const std::string utf8 = latin1_to_utf8(bytes);
+    return ClipboardContent{ContentType::Text, std::vector<uint8_t>(utf8.begin(), utf8.end())};
+  }
 
   if (convert_selection(s, s.image_png, bytes)) {
     std::vector<uint8_t> rgb;
