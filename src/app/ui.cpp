@@ -194,9 +194,9 @@ void draw_connection_tab(AppState& state) {
       ImGui::TextUnformatted("(Ctrl+Alt+Shift+Esc forces control back to Master)");
       {
         std::string held;
-        for (const uint32_t vk : state.input_held_vks) {
+        for (const HeldKey& k : state.input_held_keys) {
           if (!held.empty()) held += " + ";
-          held += vk_name(vk);
+          held += vk_name(k.vk);
         }
         ImGui::Text("Keys held: %s", held.empty() ? "(none)" : held.c_str());
       }

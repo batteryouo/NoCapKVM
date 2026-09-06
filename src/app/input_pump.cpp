@@ -23,8 +23,8 @@ namespace {
 // soon as all four are simultaneously down, regardless of press order.
 bool escape_combo_held(const AppState& state) {
   bool ctrl = false, alt = false, shift = false, esc = false;
-  for (const uint32_t vk : state.input_held_vks) {
-    switch (vk) {
+  for (const HeldKey& k : state.input_held_keys) {
+    switch (k.vk) {
       case VK_CONTROL: case VK_LCONTROL: case VK_RCONTROL: ctrl = true; break;
       case VK_MENU: case VK_LMENU: case VK_RMENU: alt = true; break;
       case VK_SHIFT: case VK_LSHIFT: case VK_RSHIFT: shift = true; break;
@@ -58,12 +58,46 @@ void send_modifier_sync_mask(AppState& state, uint8_t mask) {
 
 void send_modifier_sync(AppState& state) { send_modifier_sync_mask(state, current_modifier_mask()); }
 
+// Whichever side is losing control at a handoff will never see the keyup
+// for anything held right now: while Slave owns input the hook swallows
+// every keyup before Windows can see it, and while Master owns it none are
+// forwarded to Slave. So each held key's press and its release land on
+// opposite machines, and the one that got only the press is stuck holding
+// it -- observed as Slave autorepeating the last letter typed
+// ("ccccccc...") and as Windows acting like Ctrl were still down (wheel
+// scrolling zooms a browser instead of scrolling it). Both handoffs
+// therefore release explicitly, each toward the side it's leaving.
+
+void release_held_keys_on_slave(AppState& state) {
+  for (const HeldKey& k : state.input_held_keys) {
+    const auto payload = input::encode_key(k.vk, k.scancode, false, k.extended);
+    state.tcp_server->send_input(input::kMsgKey, payload.data(), payload.size());
+  }
+  // The injector tracks modifiers in its own shadow state alongside plain
+  // key events (uinput is write-only, so it has nothing to read back), and
+  // that shadow is what set_modifiers() diffs against. Clear it too, so a
+  // modifier can't survive as "held" there after its key event released it.
+  send_modifier_sync_mask(state, 0);
+}
+
+#ifdef _WIN32
+void release_held_keys_locally(const AppState& state) {
+  // SendInput-synthesized, so both hook procs skip these (LLKHF_INJECTED)
+  // and they're never forwarded on to Slave -- correctly, since the key is
+  // genuinely still down physically and its real keyup belongs to Slave
+  // now. This only corrects Windows' own idea of what's held.
+  for (const HeldKey& k : state.input_held_keys) input::inject_key(k.vk, k.scancode, false, k.extended);
+}
+#else
+void release_held_keys_locally(const AppState&) {}
+#endif
+
 void deactivate_hook(AppState& state) {
   state.input_hook.resume();
   state.input_hook.uninstall();
   state.input_hook_active = false;
   state.input_owned_by_master = true;
-  state.input_held_vks.clear();
+  state.input_held_keys.clear();
 }
 
 void handle_master_owned(AppState& state, const discovery::ConnectionInfo& info, const input::InputFrame& frame) {
@@ -101,7 +135,11 @@ void handle_master_owned(AppState& state, const discovery::ConnectionInfo& info,
 
       const auto payload = input::encode_mouse_absolute(state.input_logical_x, state.input_logical_y);
       state.tcp_server->send_input(input::kMsgMouseAbsolute, payload.data(), payload.size());
+      // Order matters: current_modifier_mask() reads the real physical
+      // state, so it has to run before the local release below fakes those
+      // keys up. Slave wants what's actually held; Windows must forget it.
       send_modifier_sync(state);
+      release_held_keys_locally(state);
       return;
     }
   }
@@ -204,8 +242,13 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
   state.input_logical_x = cross.x + (horizontal ? overshoot : 0);
   state.input_logical_y = cross.y + (horizontal ? 0 : overshoot);
   state.input_just_handed_off = true;
+  // Clear Slave before handing control back, not after: from the next line
+  // on, nothing this user does reaches Slave at all. Note this deliberately
+  // replaces a send_modifier_sync() of the *live* mask, which re-asserted
+  // whatever was held as a fresh keydown on the machine about to stop
+  // hearing about it -- the exact opposite of what leaving requires.
+  release_held_keys_on_slave(state);
   state.input_hook.resume(state.input_logical_x, state.input_logical_y);
-  send_modifier_sync(state);
 }
 
 }  // namespace
@@ -248,14 +291,19 @@ void pump_input(AppState& state) {
 
   const input::InputFrame frame = state.input_hook.poll();
 
-  // On-screen key monitor (diagnostic): tracks which virtual-key codes are
-  // currently held, independent of ownership, so hotkey detection issues
-  // can be observed directly instead of guessed at.
+  // Tracks what's currently held, independent of ownership. Started out as
+  // just the on-screen key monitor (so hotkey detection issues could be
+  // observed rather than guessed at); it's now also what both handoffs
+  // release toward the side they're leaving, so it carries scancodes too.
   for (const auto& k : frame.keys) {
-    auto& held = state.input_held_vks;
-    const auto it = std::find(held.begin(), held.end(), k.vk);
+    auto& held = state.input_held_keys;
+    const auto it = std::find_if(held.begin(), held.end(), [&](const HeldKey& h) { return h.vk == k.vk; });
     if (k.down) {
-      if (it == held.end()) held.push_back(k.vk);
+      // Windows repeats keydowns while a key is held; refresh rather than
+      // duplicate, so an autorepeat can't stack entries or leave a stale
+      // scancode behind for the release below to use.
+      if (it == held.end()) held.push_back(HeldKey{k.vk, k.scancode, k.extended});
+      else *it = HeldKey{k.vk, k.scancode, k.extended};
     } else if (it != held.end()) {
       held.erase(it);
     }
@@ -278,12 +326,14 @@ void pump_input(AppState& state) {
     state.input_logical_x = safe_x;
     state.input_logical_y = safe_y;
     state.input_just_handed_off = true;
-    // Force-clear rather than reading current physical state: the user is
-    // still physically holding the hotkey's own modifiers right now, and
-    // will release them after control has already returned to Master (so
-    // those releases never reach Slave) -- reading "currently held" here
-    // would leave Slave's modifiers stuck down instead of freed.
-    send_modifier_sync_mask(state, 0);
+    // Force-release rather than syncing current physical state: the user is
+    // still physically holding the hotkey itself right now, and will let go
+    // of it after control has already returned to Master (so those releases
+    // never reach Slave) -- sending "currently held" here would leave every
+    // one of those keys stuck down on Slave instead of freed. Same reason
+    // the ordinary crossing back does this; the only difference is that
+    // here the keys involved are the hotkey's own.
+    release_held_keys_on_slave(state);
     // The emergency escape is a hard reset, not just a handoff: drop the
     // connection outright rather than leaving it up. Reconnecting is
     // currently manual (Slave has to click Connect again) -- a known,

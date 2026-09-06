@@ -23,6 +23,16 @@ namespace nockvm::app {
 
 enum class Screen { RoleSelect, Discovery, ManageDevices, Arrangement };
 
+// A key currently held down, tracked by pump_input(). scancode/extended
+// ride along with vk because releasing a held key on the peer needs them:
+// the Linux injector maps scancodes onto evdev keycodes and ignores vk
+// entirely, so a vk alone can't let go of anything over there.
+struct HeldKey {
+  uint32_t vk = 0;
+  uint32_t scancode = 0;
+  bool extended = false;
+};
+
 struct AppState {
   Screen screen = Screen::RoleSelect;
   Screen previous_screen = Screen::RoleSelect;  // where "Back" on ManageDevices/Arrangement returns to
@@ -71,7 +81,10 @@ struct AppState {
   // directions), consumed (and cleared) by the very next frame's crossing
   // check so a stray post-handoff jitter can't immediately bounce it back.
   bool input_just_handed_off = false;
-  std::vector<uint32_t> input_held_vks;  // currently-held virtual-key codes, for the on-screen key monitor
+  // Currently-held keys. Feeds the on-screen key monitor, the emergency
+  // hotkey check, and -- the reason it carries scancodes -- the explicit
+  // release both handoffs now send to the side losing control.
+  std::vector<HeldKey> input_held_keys;
 
   // Audio routing, Slave -> Master (brief §3.3), driven once per frame by
   // pump_audio() in audio_pump.cpp. Only the pair matching this machine's
