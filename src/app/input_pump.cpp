@@ -1,5 +1,6 @@
 #include "input_pump.h"
 #include <algorithm>
+#include <optional>
 #include "nockvm/discovery/connection_types.h"
 #include "nockvm/input/inject.h"
 #include "nockvm/input/protocol.h"
@@ -132,15 +133,24 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
       bc.crossed && ((overshoot_x >= kReturnMargin || overshoot_x <= -kReturnMargin) ||
                       (overshoot_y >= kReturnMargin || overshoot_y <= -kReturnMargin));
 
-  // Send the CLAMPED position (the visible cursor on Slave should stay
-  // pinned at its own screen edge until a crossing actually commits) but do
-  // NOT write it back into state.input_logical_x/y here: doing that
-  // unconditionally every frame was the actual bug behind "almost always
-  // fails" -- it discarded any overshoot that didn't clear the margin
-  // within a single frame's batched delta, so a gentle sustained push
-  // against the edge (completely normal) never accumulated across frames;
-  // each frame started over exactly at the boundary. Below, only a
-  // successful crossing reassigns state.input_logical_x/y.
+  // Exactly one of the peer's four edges faces Master, and it's the only
+  // one where pushing past can lead anywhere. Working that out here rather
+  // than only at the crossing check below is what keeps the other three
+  // edges from accumulating overshoot forever (see the clamp further down).
+  const auto arrangement = state.screen_arrangement.get(info.peer_device_id);
+  const topology::ClusterBounds master_bounds = topology::compute_bounds(state.local_monitors);
+  std::optional<topology::ArrangementEntry> inv;
+  if (arrangement) inv = topology::invert_entry(*arrangement, master_bounds, peer_bounds);
+  const bool crossable_edge = bc.crossed && inv && bc.direction == inv->direction;
+  const bool horizontal = bc.direction == topology::Direction::Left || bc.direction == topology::Direction::Right;
+
+  // Send the CLAMPED position -- the visible cursor on Slave should stay
+  // pinned at its own screen edge until a crossing actually commits. What
+  // state.input_logical_x/y itself becomes is decided further down, after
+  // the overshoots above have been read: writing the clamp back here
+  // unconditionally was the original bug behind "crossing back almost
+  // always fails", since it discarded any overshoot that didn't clear the
+  // margin within one frame's batched delta.
   {
     const auto payload = input::encode_mouse_absolute(bc.clamped_x, bc.clamped_y);
     state.tcp_server->send_input(input::kMsgMouseAbsolute, payload.data(), payload.size());
@@ -158,22 +168,36 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
     state.tcp_server->send_input(input::kMsgKey, payload.data(), payload.size());
   }
 
-  if (skip_crossing || !past_margin) return;
-  const auto arrangement = state.screen_arrangement.get(info.peer_device_id);
-  if (!arrangement) return;
+  // Fold the clamp back in now that the overshoots above have been read.
+  // Only the crossing axis of a crossable edge may keep its overshoot --
+  // that's what lets a gentle sustained push accumulate across frames until
+  // it clears kReturnMargin. Everywhere else the position has to come back
+  // inside the peer's bounds, exactly like an OS clamps a cursor at a
+  // desktop edge. Without this, pushing against any of the three edges that
+  // face nothing just ran state.input_logical_x/y off into empty space at
+  // full mouse speed, with no limit and nothing to bring it back: the
+  // cursor sat pinned at the edge (the peer only ever sees bc.clamped_*)
+  // while the logical position drifted thousands of pixels away, so getting
+  // it back meant dragging the mouse the other way for exactly as long as
+  // it had been pushed. Reported as "sliding in the other three directions
+  // acts like there's another screen over there".
+  if (crossable_edge) {
+    if (horizontal) state.input_logical_y = bc.clamped_y;
+    else state.input_logical_x = bc.clamped_x;
+  } else {
+    state.input_logical_x = bc.clamped_x;
+    state.input_logical_y = bc.clamped_y;
+  }
 
-  const topology::ClusterBounds master_bounds = topology::compute_bounds(state.local_monitors);
-  const topology::ArrangementEntry inv = topology::invert_entry(*arrangement, master_bounds, peer_bounds);
-  if (bc.direction != inv.direction) return;
+  if (skip_crossing || !past_margin || !crossable_edge) return;
 
   const topology::CrossingResult cross =
-      topology::compute_crossing(state.local_monitors, inv.direction, inv.offset, bc.perp_pos);
+      topology::compute_crossing(state.local_monitors, inv->direction, inv->offset, bc.perp_pos);
   if (!cross.has_target) return;
 
   // Carry the overshoot already computed above (the margin check) into
   // Master's space along the axis being crossed, for the same reason as the
   // outbound crossing in handle_master_owned -- don't discard real momentum.
-  const bool horizontal = bc.direction == topology::Direction::Left || bc.direction == topology::Direction::Right;
   const int32_t overshoot = horizontal ? overshoot_x : overshoot_y;
 
   state.input_owned_by_master = true;
