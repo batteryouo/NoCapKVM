@@ -14,12 +14,23 @@ namespace nockvm::audio {
 // callback thread via pop().
 class JitterBuffer {
 public:
-  explicit JitterBuffer(size_t target_depth);
+  // target_depth: how many frames to buffer before playback starts.
+  // max_depth: hard ceiling on how many may ever be waiting at once.
+  JitterBuffer(size_t target_depth, size_t max_depth);
 
   // Inserts a decoded frame at the given sequence number. Out-of-order and
   // duplicate-safe; silently dropped if it arrives after playback has
-  // already moved past that sequence number.
+  // already moved past that sequence number. Also bounded: once more than
+  // max_depth frames are waiting, the oldest are discarded (and playback
+  // skipped past them) rather than allowed to pile up -- see max_depth
+  // below.
   void push(uint32_t seq, std::vector<uint8_t> frame);
+
+  // How many frames are waiting to be played. Purely diagnostic: parked at
+  // max_depth means the sender is outrunning the playback device and audio
+  // is being dropped to stay bounded; hovering near target_depth is
+  // healthy.
+  size_t depth() const;
 
   // Returns the next frame to play once enough have buffered up
   // (target_depth reached); nullopt means "not ready yet" or "that
@@ -28,9 +39,16 @@ public:
   std::optional<std::vector<uint8_t>> pop();
 
 private:
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
   std::map<uint32_t, std::vector<uint8_t>> buffer_;
   size_t target_depth_;
+  // pop() drains at the playback device's rate and push() fills at the
+  // sender's; two machines' audio clocks are never exactly equal, and
+  // nothing else in here ever discards a backlog -- so any sustained
+  // excess on the send side would otherwise accumulate in buffer_
+  // forever. An unbounded container fed straight off the network is not a
+  // shape this should ever have, whatever the rates happen to be.
+  size_t max_depth_;
   bool started_ = false;
   uint32_t next_seq_ = 0;
   // Once playback's own next_seq_ races ahead of what the sender has

@@ -10,8 +10,35 @@
 #include "nockvm/topology/crossing.h"
 #include "quit.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#include <psapi.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace nockvm::app {
 namespace {
+
+// This process's resident memory, in MiB. Shown next to the audio jitter
+// depth on Master's connection panel: between them they distinguish "the
+// machine got slow because this process is growing" from "it got slow for
+// some other reason", which is otherwise only guessable after the fact.
+double resident_mib() {
+#ifdef _WIN32
+  PROCESS_MEMORY_COUNTERS pmc{};
+  if (!GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) return 0.0;
+  return static_cast<double>(pmc.WorkingSetSize) / (1024.0 * 1024.0);
+#else
+  std::FILE* f = std::fopen("/proc/self/statm", "r");
+  if (!f) return 0.0;
+  long total_pages = 0, resident_pages = 0;
+  const int matched = std::fscanf(f, "%ld %ld", &total_pages, &resident_pages);
+  std::fclose(f);
+  if (matched != 2) return 0.0;
+  return static_cast<double>(resident_pages) * static_cast<double>(sysconf(_SC_PAGESIZE)) / (1024.0 * 1024.0);
+#endif
+}
 
 // Makes the ImGui window fill the whole GLFW window instead of floating as
 // an independently movable/auto-sizing panel inside it — the previous
@@ -200,6 +227,13 @@ void draw_connection_tab(AppState& state) {
         }
         ImGui::Text("Keys held: %s", held.empty() ? "(none)" : held.c_str());
       }
+      // Diagnostic pair. Audio buffer sitting at its 200-packet ceiling
+      // means Slave is outrunning this machine's playback device and frames
+      // are being dropped to stay bounded; memory climbing steadily over a
+      // session is the thing to catch if the machine starts getting slow
+      // again.
+      ImGui::Text("Audio buffer: %zu packets   |   Memory: %.0f MiB",
+                  state.audio_playback ? state.audio_playback->buffered_packets() : 0u, resident_mib());
       ImGui::Spacing();
       ImGui::TextUnformatted("Slave's displays:");
       draw_monitor_table("slave_monitors", info.peer_monitors);

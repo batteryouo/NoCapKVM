@@ -26,6 +26,9 @@ public:
 
   void push_frame(uint32_t seq, std::vector<uint8_t> data);
 
+  // Diagnostic, surfaced in Master's UI: see JitterBuffer::depth().
+  size_t buffered_packets() const;
+
 private:
   void* device_ = nullptr;  // ma_device*, opaque here to keep miniaudio out of this header
   std::unique_ptr<JitterBuffer> buffer_;

@@ -83,7 +83,15 @@ void pump_master(AppState& state) {
     // it just moves bytes) doesn't need to be touched.
     if (state.audio_playback) state.audio_playback->stop();
     state.audio_playback = std::make_unique<audio::AudioPlayback>();
-    state.audio_playback->start(peer_format);
+    if (!state.audio_playback->start(peer_format)) {
+      // Drop it entirely rather than leaving a playback object whose device
+      // never opened: its jitter buffer would have no consumer at all, so
+      // the receive loop below would fill it and nothing would ever drain
+      // it. audio_active is still set at the end of this block on purpose,
+      // so a device that won't open doesn't turn into an open attempt every
+      // single frame -- the next connection gets a fresh try.
+      state.audio_playback.reset();
+    }
     state.audio_master_active_format = peer_format;
 
     if (!state.audio_recv_channel) {
@@ -92,6 +100,8 @@ void pump_master(AppState& state) {
     }
     state.audio_active = true;
   }
+
+  if (!state.audio_playback) return;  // device never opened -- let the socket drop packets instead of buffering them
 
   uint32_t seq = 0;
   std::vector<uint8_t> data;

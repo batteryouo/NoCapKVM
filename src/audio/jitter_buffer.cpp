@@ -13,12 +13,32 @@ constexpr size_t kMaxConsecutiveMisses = 40;
 
 }  // namespace
 
-JitterBuffer::JitterBuffer(size_t target_depth) : target_depth_(target_depth) {}
+JitterBuffer::JitterBuffer(size_t target_depth, size_t max_depth)
+    : target_depth_(target_depth), max_depth_(max_depth < target_depth ? target_depth : max_depth) {}
 
 void JitterBuffer::push(uint32_t seq, std::vector<uint8_t> frame) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (started_ && seq < next_seq_) return;  // too late to matter, drop
   buffer_[seq] = std::move(frame);
+
+  // Over the ceiling: throw away the oldest and skip playback past them.
+  // Being this far behind means those frames were going to be heard late
+  // or not at all anyway, so dropping them costs a moment of audio and
+  // buys a bounded buffer -- the same trade this class already makes for
+  // ordinary loss and reordering. Without it, a sender even slightly
+  // faster than the playback device (which is the normal case between two
+  // machines' independent audio clocks) grows this map without limit for
+  // as long as the connection lasts.
+  while (buffer_.size() > max_depth_) {
+    const auto oldest = buffer_.begin();
+    if (started_ && oldest->first >= next_seq_) next_seq_ = oldest->first + 1;
+    buffer_.erase(oldest);
+  }
+}
+
+size_t JitterBuffer::depth() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return buffer_.size();
 }
 
 std::optional<std::vector<uint8_t>> JitterBuffer::pop() {

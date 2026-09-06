@@ -80,8 +80,16 @@ bool AudioCapture::start(const AudioFormat& format, std::function<void(const uin
   ma_device_id device_id{};
   if (select_device_id(impl->context, device_id)) config.capture.pDeviceID = &device_id;
 
-  if (ma_device_init(&impl->context, &config, &impl->device) != MA_SUCCESS ||
-      ma_device_start(&impl->device) != MA_SUCCESS) {
+  if (ma_device_init(&impl->context, &config, &impl->device) != MA_SUCCESS) {
+    ma_context_uninit(&impl->context);
+    delete impl;
+    return false;
+  }
+  // See playback.cpp's matching split: a device that initialized but failed
+  // to start still owns backend resources that only ma_device_uninit()
+  // releases.
+  if (ma_device_start(&impl->device) != MA_SUCCESS) {
+    ma_device_uninit(&impl->device);
     ma_context_uninit(&impl->context);
     delete impl;
     return false;
