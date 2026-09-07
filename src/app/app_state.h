@@ -121,6 +121,15 @@ struct AppState {
   // every subsequent change (tracked via audio_master_last_sent_*).
   bool audio_master_desired_send_enabled = true;
   audio::AudioFormat audio_master_desired_format;
+  // Until the user actually touches one of the Audio tab's request controls
+  // (see ui.cpp's draw_audio_tab), audio_master_desired_* mirrors whatever
+  // Slave is actually reporting instead of sitting on its own stale default
+  // -- otherwise the moment a connection came up, Master would silently push
+  // its default (48kHz/16-bit/enabled) as a real request even though the
+  // user never asked for anything. Set on the first edit and reset on
+  // disconnect (see pump_master()), so each connection starts back in the
+  // mirroring state.
+  bool audio_master_overridden = false;
   bool audio_master_control_sent = false;  // at least one kMsgAudioControl sent this connection
   bool audio_master_last_sent_enabled = true;
   audio::AudioFormat audio_master_last_sent_format;

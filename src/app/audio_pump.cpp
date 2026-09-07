@@ -27,6 +27,7 @@ void pump_master(AppState& state) {
       state.audio_active = false;
     }
     state.audio_master_control_sent = false;
+    state.audio_master_overridden = false;
     return;
   }
 
@@ -39,25 +40,35 @@ void pump_master(AppState& state) {
       state.audio_active = false;
     }
     state.audio_master_control_sent = false;
+    state.audio_master_overridden = false;
     return;
   }
 
-  // Push Master's desired settings to Slave -- once as soon as the
-  // connection is up, and again on every subsequent change -- regardless
-  // of whether Slave is currently sending, so the request is waiting for
-  // Slave as soon as it looks.
-  const bool want_send_control = !state.audio_master_control_sent ||
-      state.audio_master_desired_send_enabled != state.audio_master_last_sent_enabled ||
-      (state.audio_master_desired_send_enabled &&
-       state.audio_master_desired_format != state.audio_master_last_sent_format);
-  if (want_send_control) {
-    const auto payload = discovery::encode_audio_settings(
-        state.audio_master_desired_send_enabled, state.audio_master_desired_format.sample_rate,
-        state.audio_master_desired_format.bit_depth);
-    state.tcp_server->send_input(discovery::kMsgAudioControl, payload.data(), payload.size());
-    state.audio_master_control_sent = true;
-    state.audio_master_last_sent_enabled = state.audio_master_desired_send_enabled;
-    state.audio_master_last_sent_format = state.audio_master_desired_format;
+  if (!state.audio_master_overridden) {
+    // Mirror Slave's actual settings rather than sending anything -- see
+    // audio_master_overridden's declaration. The user hasn't asked Master to
+    // request a particular format yet, so there's no request to push.
+    state.audio_master_desired_send_enabled = info.peer_audio_send_enabled;
+    state.audio_master_desired_format.sample_rate = info.peer_audio_sample_rate;
+    state.audio_master_desired_format.bit_depth = info.peer_audio_bit_depth;
+  } else {
+    // Push Master's desired settings to Slave -- once as soon as the
+    // connection is up, and again on every subsequent change -- regardless
+    // of whether Slave is currently sending, so the request is waiting for
+    // Slave as soon as it looks.
+    const bool want_send_control = !state.audio_master_control_sent ||
+        state.audio_master_desired_send_enabled != state.audio_master_last_sent_enabled ||
+        (state.audio_master_desired_send_enabled &&
+         state.audio_master_desired_format != state.audio_master_last_sent_format);
+    if (want_send_control) {
+      const auto payload = discovery::encode_audio_settings(
+          state.audio_master_desired_send_enabled, state.audio_master_desired_format.sample_rate,
+          state.audio_master_desired_format.bit_depth);
+      state.tcp_server->send_input(discovery::kMsgAudioControl, payload.data(), payload.size());
+      state.audio_master_control_sent = true;
+      state.audio_master_last_sent_enabled = state.audio_master_desired_send_enabled;
+      state.audio_master_last_sent_format = state.audio_master_desired_format;
+    }
   }
 
   // peer_audio_send_enabled defaults to false until Slave reports

@@ -289,25 +289,39 @@ void draw_audio_tab(AppState& state) {
     ImGui::Spacing();
     ImGui::TextUnformatted("(These settings can also be changed from Master's side.)");
   } else {
-    // Master can drive these settings too -- pump_audio() sends whatever
-    // is set here to Slave as a request (kMsgAudioControl) whenever it
-    // changes, so touching Slave's own machine is no longer required.
-    ImGui::Checkbox("Send audio (request to Slave)", &state.audio_master_desired_send_enabled);
+    // Master can drive these settings too -- pump_audio() sends whatever is
+    // set here to Slave as a request (kMsgAudioControl) once the user
+    // actually touches one of these controls (audio_master_overridden).
+    // Until then, they just mirror whatever Slave is actually doing (kept in
+    // sync by pump_master()), so opening this tab shows the real current
+    // state rather than Master's untouched default -- the fields below are
+    // the same audio_master_desired_* the radio buttons above are bound to,
+    // this section only decides when clicking one starts being a request.
+    ImGui::TextUnformatted(state.audio_master_overridden ? "Requesting from Slave:" : "Slave's current settings:");
+    if (ImGui::Checkbox("Send audio", &state.audio_master_desired_send_enabled)) state.audio_master_overridden = true;
     ImGui::Spacing();
 
     ImGui::TextUnformatted("Sample rate:");
-    if (ImGui::RadioButton("48kHz", state.audio_master_desired_format.sample_rate == 48000))
+    if (ImGui::RadioButton("48kHz", state.audio_master_desired_format.sample_rate == 48000)) {
       state.audio_master_desired_format.sample_rate = 48000;
+      state.audio_master_overridden = true;
+    }
     ImGui::SameLine();
-    if (ImGui::RadioButton("24kHz", state.audio_master_desired_format.sample_rate == 24000))
+    if (ImGui::RadioButton("24kHz", state.audio_master_desired_format.sample_rate == 24000)) {
       state.audio_master_desired_format.sample_rate = 24000;
+      state.audio_master_overridden = true;
+    }
 
     ImGui::TextUnformatted("Bit depth:");
-    if (ImGui::RadioButton("16-bit", state.audio_master_desired_format.bit_depth == 16))
+    if (ImGui::RadioButton("16-bit", state.audio_master_desired_format.bit_depth == 16)) {
       state.audio_master_desired_format.bit_depth = 16;
+      state.audio_master_overridden = true;
+    }
     ImGui::SameLine();
-    if (ImGui::RadioButton("8-bit", state.audio_master_desired_format.bit_depth == 8))
+    if (ImGui::RadioButton("8-bit", state.audio_master_desired_format.bit_depth == 8)) {
       state.audio_master_desired_format.bit_depth = 8;
+      state.audio_master_overridden = true;
+    }
 
     ImGui::Spacing();
     if (state.tcp_server && state.tcp_server->status().state == discovery::ConnectionState::Connected) {
