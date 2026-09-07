@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstdio>
 #include <vector>
 #include <GLFW/glfw3.h>
@@ -165,21 +166,43 @@ int main() {
     glfwSwapBuffers(window);
   }
 
+  // Temporary: times each shutdown step so a reported multi-second close-time
+  // stall can be pinned to a specific step instead of guessed at. Remove once
+  // that's diagnosed. Only visible when run from a console the process
+  // inherits stdio from (WIN32-subsystem apps have none of their own).
+  const auto shutdown_start = std::chrono::steady_clock::now();
+  auto log_step = [&](const char* label) {
+    const auto now = std::chrono::steady_clock::now();
+    std::fprintf(stderr, "[shutdown] %s: %lld ms\n", label,
+                 static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(now - shutdown_start).count()));
+  };
+
   state.announcer.reset();
+  log_step("announcer.reset");
   state.listener.reset();
+  log_step("listener.reset");
   state.tcp_server.reset();
+  log_step("tcp_server.reset");
   state.tcp_client.reset();
+  log_step("tcp_client.reset");
 
   ImGui_ImplOpenGL3_Shutdown();
+  log_step("ImGui_ImplOpenGL3_Shutdown");
   ImGui_ImplGlfw_Shutdown();
+  log_step("ImGui_ImplGlfw_Shutdown");
   ImGui::DestroyContext();
+  log_step("ImGui::DestroyContext");
 
 #ifdef _WIN32
   uninstall_raw_input(window);
+  log_step("uninstall_raw_input");
 #endif
   nockvm::app::uninstall_tray();
+  log_step("uninstall_tray");
 
   glfwDestroyWindow(window);
+  log_step("glfwDestroyWindow");
   glfwTerminate();
+  log_step("glfwTerminate");
   return 0;
 }
