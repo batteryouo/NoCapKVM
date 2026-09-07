@@ -28,7 +28,7 @@ void restore_window() {
 
 void show_context_menu(HWND hwnd) {
   HMENU menu = CreatePopupMenu();
-  AppendMenuW(menu, MF_STRING, kExitMenuCommand, L"結束 Exit");
+  AppendMenuW(menu, MF_STRING, kExitMenuCommand, L"Exit");
   POINT pt;
   GetCursorPos(&pt);
   // Without this the popup can fail to dismiss itself on an outside click --
