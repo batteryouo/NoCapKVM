@@ -11,19 +11,6 @@ namespace {
 // playback silent for the rest of the connection.
 constexpr size_t kMaxConsecutiveMisses = 40;
 
-// How far above target_depth_ the buffer is allowed to sit before pop()
-// fast-forwards it back down. Ordinary jitter/reordering can legitimately
-// push depth a little past target without anything being wrong, so this
-// needs slack -- but nothing between target_depth_ and max_depth_ was ever
-// actively pulling depth back toward target_depth_ once something (commonly
-// a one-time burst of already-buffered audio handed over on a capture
-// device's very first callback) pushed it up there, so a session could sit
-// hundreds of milliseconds behind real time for its entire duration without
-// ever reaching max_depth_ -- observed directly: audio buffer parked at
-// 100-170 packets (0.5-0.85s) for an entire session, never climbing toward
-// the 200 ceiling and never draining back toward target_depth_ either.
-constexpr size_t kCatchUpMargin = 10;
-
 }  // namespace
 
 JitterBuffer::JitterBuffer(size_t target_depth, size_t max_depth)
@@ -61,20 +48,6 @@ std::optional<std::vector<uint8_t>> JitterBuffer::pop() {
     started_ = true;
     next_seq_ = buffer_.begin()->first;
     consecutive_misses_ = 0;
-  }
-
-  // Catch up before playing anything: if a burst left far more than
-  // target_depth_ waiting, jump next_seq_ straight to what's left rather
-  // than working through the backlog one packet per callback -- the latter
-  // would just keep depth() permanently elevated instead of shrinking it,
-  // since normal playback drains at the same rate frames keep arriving.
-  // One-shot rather than gradual on purpose: whatever gets skipped here was
-  // going to be heard late no matter what, so there's nothing to gain by
-  // spreading the skip out.
-  while (buffer_.size() > target_depth_ + kCatchUpMargin) {
-    const auto oldest = buffer_.begin();
-    next_seq_ = oldest->first + 1;
-    buffer_.erase(oldest);
   }
 
   const auto it = buffer_.find(next_seq_);

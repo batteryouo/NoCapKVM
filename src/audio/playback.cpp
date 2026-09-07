@@ -5,7 +5,10 @@
 namespace nockvm::audio {
 namespace {
 
-constexpr size_t kTargetDepth = 3;  // packets buffered before playback starts
+// Audio packets arrive through the GUI loop, which normally runs every
+// 16.7 ms with VSync. Eight 5 ms packets cover that cadence and ordinary
+// scheduling variance before playback begins.
+constexpr size_t kTargetDepth = 8;
 // ~1 second of audio at the 5ms/packet the sender uses. Far more slack than
 // any LAN jitter needs, so it never interferes with normal playback, while
 // still capping what the buffer can hold at a couple hundred KB.

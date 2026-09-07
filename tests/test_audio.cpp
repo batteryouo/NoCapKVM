@@ -133,24 +133,18 @@ int main() {
     assert(buf.pop().has_value());
   }
 
-  // A large one-time backlog well under max_depth (a capture device's first
-  // callback commonly hands over everything already buffered in its shared
-  // ring, all at once) must not leave the buffer permanently elevated: the
-  // very first pop() fast-forwards through it rather than draining it one
-  // packet per callback for the rest of the session.
+  // Frames below the hard limit retain their sequence order.
   {
     JitterBuffer buf(3, 200);
     for (uint32_t seq = 0; seq < 50; ++seq) buf.push(seq, {static_cast<uint8_t>(seq)});
     assert(buf.depth() == 50);
 
     const auto f = buf.pop();
-    assert(f.has_value() && (*f)[0] == 37);  // skipped seq 0-36, kept the newest 13
-    assert(buf.depth() == 12);
+    assert(f.has_value() && (*f)[0] == 0);
+    assert(buf.depth() == 49);
 
-    // Playback resumes in order from there, not from wherever it left off
-    // before the catch-up.
     const auto g = buf.pop();
-    assert(g.has_value() && (*g)[0] == 38);
+    assert(g.has_value() && (*g)[0] == 1);
   }
 
   return 0;

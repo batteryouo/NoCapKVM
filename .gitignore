@@ -13,6 +13,8 @@ tmp/
 # Virtual environments
 .venv
 .claude/
+.agents/
+.codex/
 CLAUDE.md
 
 # editor setting
