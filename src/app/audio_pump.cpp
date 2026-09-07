@@ -1,4 +1,5 @@
 #include "audio_pump.h"
+#include <cstdio>
 #include "nockvm/audio/format.h"
 #include "nockvm/audio/protocol.h"
 #include "nockvm/discovery/audio_port_protocol.h"
@@ -167,7 +168,15 @@ void pump_slave(AppState& state) {
   if (status_changed) {
     const auto payload = discovery::encode_audio_settings(
         state.audio_send_enabled, state.audio_desired_format.sample_rate, state.audio_desired_format.bit_depth);
-    state.tcp_client->send_message(discovery::kMsgAudioStatus, payload.data(), payload.size());
+    // Temporary: the Slave -> Master direction of this report was reported as
+    // never landing on Master's UI. Log the send attempt itself and whether
+    // the socket layer accepted it, so it's clear whether the bug is here
+    // (never triggers / send_message fails) or downstream on Master's side.
+    // Remove once diagnosed.
+    const bool ok = state.tcp_client->send_message(discovery::kMsgAudioStatus, payload.data(), payload.size());
+    std::fprintf(stderr, "[audio] sent kMsgAudioStatus enabled=%d rate=%u bits=%u ok=%d\n",
+                 state.audio_send_enabled, state.audio_desired_format.sample_rate, state.audio_desired_format.bit_depth,
+                 ok);
     state.audio_status_reported = true;
     state.audio_last_reported_send_enabled = state.audio_send_enabled;
     state.audio_last_reported_format = state.audio_desired_format;
