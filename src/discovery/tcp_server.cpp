@@ -1,6 +1,5 @@
 #include "nockvm/discovery/tcp_server.h"
 #include <chrono>
-#include <cstdio>
 #include <thread>
 #include "nockvm/discovery/audio_port_protocol.h"
 #include "nockvm/discovery/monitor_protocol.h"
@@ -303,14 +302,7 @@ void TcpServer::run() {
           bool send_enabled;
           uint32_t sample_rate;
           uint8_t bit_depth;
-          // Temporary, paired with the send-side log in audio_pump.cpp: logs
-          // every kMsgAudioStatus this side actually decodes, to tell apart
-          // "Slave never sends it" from "it arrives but doesn't decode" from
-          // "it's applied but the UI doesn't show it". Remove once diagnosed.
-          const bool decoded = decode_audio_settings(payload.data(), payload.size(), send_enabled, sample_rate, bit_depth);
-          std::fprintf(stderr, "[audio] recv kMsgAudioStatus decoded=%d enabled=%d rate=%u bits=%u\n", decoded,
-                       decoded ? send_enabled : false, decoded ? sample_rate : 0u, decoded ? bit_depth : 0u);
-          if (decoded) {
+          if (decode_audio_settings(payload.data(), payload.size(), send_enabled, sample_rate, bit_depth)) {
             std::lock_guard<std::mutex> lock(status_mutex_);
             status_.peer_audio_send_enabled = send_enabled;
             status_.peer_audio_sample_rate = sample_rate;
