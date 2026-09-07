@@ -26,16 +26,25 @@ public:
   // below.
   void push(uint32_t seq, std::vector<uint8_t> frame);
 
-  // How many frames are waiting to be played. Purely diagnostic: parked at
-  // max_depth means the sender is outrunning the playback device and audio
-  // is being dropped to stay bounded; hovering near target_depth is
-  // healthy.
+  // How many frames are waiting to be played. Purely diagnostic: hovering
+  // near target_depth is healthy; pop() actively pulls it back down
+  // whenever it drifts too far above that (see pop()), so a session sitting
+  // well above target_depth for its entire duration without ever
+  // approaching max_depth points at something upstream (repeatedly)
+  // producing bursts, not at this buffer failing to keep up. Parked at
+  // max_depth means push() itself is discarding frames outright because
+  // pop() isn't draining them at all.
   size_t depth() const;
 
   // Returns the next frame to play once enough have buffered up
   // (target_depth reached); nullopt means "not ready yet" or "that
   // sequence number never arrived" — caller should play silence either
-  // way rather than blocking.
+  // way rather than blocking. If depth() has drifted more than a small
+  // margin above target_depth (typically a burst of already-buffered audio
+  // handed over all at once on a capture device's first callback), this
+  // fast-forwards past the backlog first so depth() drops back toward
+  // target_depth in this one call rather than staying elevated for the
+  // rest of the session.
   std::optional<std::vector<uint8_t>> pop();
 
 private:
