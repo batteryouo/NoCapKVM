@@ -5,6 +5,8 @@
 #else
 #include <cerrno>
 #include <fcntl.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -61,6 +63,11 @@ bool set_broadcast(socket_t sock) {
 bool set_reuse_address(socket_t sock) {
   int enable = 1;
   return setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&enable), sizeof(enable)) == 0;
+}
+
+bool set_tcp_nodelay(socket_t sock) {
+  int enable = 1;
+  return setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&enable), sizeof(enable)) == 0;
 }
 
 bool set_receive_timeout(socket_t sock, std::chrono::milliseconds timeout) {

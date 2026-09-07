@@ -30,6 +30,15 @@ bool set_broadcast(socket_t sock);
 bool set_reuse_address(socket_t sock);
 bool set_receive_timeout(socket_t sock, std::chrono::milliseconds timeout);
 
+// Disables Nagle's algorithm. Every message this project sends over a TCP
+// connection (mouse/key events, heartbeats, ...) is small and wants to hit
+// the wire immediately -- without this, the kernel can hold a small write
+// back for up to ~40ms hoping to coalesce it with more data or a pending
+// ACK, which reads directly as extra input latency between the two
+// machines. Set once, right after the socket is created/accepted; it's not
+// per-write state.
+bool set_tcp_nodelay(socket_t sock);
+
 // True if the socket becomes readable (or, for a listening socket, has a
 // pending connection) before the timeout elapses.
 bool wait_readable(socket_t sock, std::chrono::milliseconds timeout);

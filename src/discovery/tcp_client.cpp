@@ -131,6 +131,7 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
   }
 
   set_receive_timeout(sock, std::chrono::milliseconds(200));
+  set_tcp_nodelay(sock);
 
   const DeviceIdBytes own_bytes = encode_device_id(own_device_id_);
   DeviceIdBytes peer_bytes{};

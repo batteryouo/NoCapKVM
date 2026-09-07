@@ -127,6 +127,7 @@ void TcpServer::run() {
     if (client == kInvalidSocket) continue;
 
     set_receive_timeout(client, std::chrono::milliseconds(200));
+    set_tcp_nodelay(client);
 
     char ip_buf[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &peer_addr.sin_addr, ip_buf, sizeof(ip_buf));
