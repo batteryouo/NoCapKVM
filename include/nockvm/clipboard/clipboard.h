@@ -15,43 +15,16 @@ struct ClipboardContent {
   bool operator!=(const ClipboardContent& other) const { return !(*this == other); }
 };
 
-// Reads whatever's currently on the OS clipboard. Text comes back as
-// UTF-8; an image comes back re-encoded as JPEG (see jpeg_codec.h). Returns
-// nullopt if the clipboard holds neither (or is empty, or -- for an image
-// too large to fit even at the lowest quality step -- couldn't be encoded
-// at all). Meant to be polled periodically (see app/clipboard_pump.cpp),
-// not on every frame -- on X11 this round-trips through the selection-owner
-// protocol, which is far more expensive than a plain memory read.
+// Reads text as UTF-8 or images as JPEG; returns nullopt for unsupported or empty content.
 std::optional<ClipboardContent> read_clipboard();
 
-// Cheap check for whether the OS clipboard's content has actually changed
-// since the last call to this function returned true (or since process
-// start, the first time it's called). On Windows this is a single
-// GetClipboardSequenceNumber() comparison -- callers should use it to
-// avoid calling the much more expensive read_clipboard() (a full pixel
-// decode + JPEG re-encode for an image) on every poll tick just to find
-// out nothing changed. Platforms with no equivalent cheap signal always
-// return true, so callers stay correct (just without the fast path) --
-// read_clipboard()'s own result is still the source of truth either way.
+// Reports whether clipboard content changed since the previous successful check.
 bool clipboard_changed();
 
-// Overwrites the OS clipboard with the given content, decoding a Jpeg back
-// into a format other native apps can actually paste (a Windows CF_DIB
-// bitmap, or -- on X11 -- becoming the CLIPBOARD selection owner and
-// serving PNG/UTF8_STRING to whoever asks).
+// Writes content to the OS clipboard in a format native applications can paste.
 void write_clipboard(const ClipboardContent& content);
 
-// Services OS-level clipboard housekeeping that has to keep happening
-// regardless of whether anything is currently Connected: on X11,
-// responding to other apps' SelectionRequest while we're the CLIPBOARD
-// owner (a no-op on Windows, which has no equivalent). Call this every
-// frame unconditionally -- unlike read_clipboard()/write_clipboard(),
-// which the app layer only calls while Connected and throttled to about
-// once a second, content applied by an earlier write_clipboard() call
-// keeps sitting on the clipboard (and this process keeps owning the
-// selection on X11) even after disconnecting, and without this running
-// independently, other apps' paste requests for it would never get a
-// reply.
+// Services clipboard events; call every frame while the application is running.
 void pump_events();
 
 }  // namespace nockvm::clipboard

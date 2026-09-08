@@ -16,10 +16,7 @@ void apply_and_track(AppState& state, clipboard::ClipboardContent content) {
   state.clipboard_last_seen_valid = true;
 }
 
-// Shared by both roles -- symmetric by design, see app_state.h's comment
-// on the clipboard_* fields. `send` and `take_pending` paper over
-// TcpServer/TcpClient's differently-named but otherwise identical methods
-// (send_input/send_message, and each's own take_pending_clipboard).
+// The callbacks adapt the equivalent client and server clipboard operations.
 template <typename SendFn, typename TakeFn>
 void sync_clipboard(AppState& state, bool connected, SendFn&& send, TakeFn&& take_pending) {
   if (!connected) {
@@ -39,13 +36,7 @@ void sync_clipboard(AppState& state, bool connected, SendFn&& send, TakeFn&& tak
   if (now - state.clipboard_last_check < kPollInterval) return;
   state.clipboard_last_check = now;
 
-  // Cheap pre-check before paying for the real read: without this, an
-  // image sitting on the clipboard got fully re-decoded and re-encoded to
-  // JPEG on every single poll tick forever, not just once when it actually
-  // changed. That's expensive enough on the main thread to delay the
-  // WH_MOUSE_LL hook's callback, which Windows notices system-wide --
-  // reported as the whole OS's mouse visibly stuttering every ~1s for as
-  // long as a large image stayed on the clipboard.
+  // Avoid decoding and encoding unchanged clipboard images.
   if (!clipboard::clipboard_changed()) return;
 
   std::optional<clipboard::ClipboardContent> current = clipboard::read_clipboard();

@@ -81,9 +81,7 @@ int main() {
     }
     assert(!resynced);  // nothing was ever pushed in this loop -- always silence
 
-    // Long before this session's real sequence numbers would ever repeat,
-    // but well below whatever next_seq_ raced up to during the stall --
-    // exactly the case that used to be rejected forever.
+    // A low sequence number restarts playback after a prolonged stall.
     buf.push(5, {50});
     const auto f = buf.pop();
     assert(f.has_value() && (*f)[0] == 50);

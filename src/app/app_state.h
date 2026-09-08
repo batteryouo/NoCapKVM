@@ -23,10 +23,7 @@ namespace nockvm::app {
 
 enum class Screen { RoleSelect, Discovery, ManageDevices, Arrangement };
 
-// A key currently held down, tracked by pump_input(). scancode/extended
-// ride along with vk because releasing a held key on the peer needs them:
-// the Linux injector maps scancodes onto evdev keycodes and ignores vk
-// entirely, so a vk alone can't let go of anything over there.
+// A currently held key, including the data needed to release it remotely.
 struct HeldKey {
   uint32_t vk = 0;
   uint32_t scancode = 0;
@@ -35,61 +32,36 @@ struct HeldKey {
 
 struct AppState {
   Screen screen = Screen::RoleSelect;
-  Screen previous_screen = Screen::RoleSelect;  // where "Back" on ManageDevices/Arrangement returns to
+  Screen previous_screen = Screen::RoleSelect;  // Destination of Back from sub-screens.
   discovery::Role role = discovery::Role::Master;
   uint64_t device_id = 0;
   std::string hostname;
-  std::vector<display::MonitorInfo> local_monitors;  // this machine's own displays, queried once at startup
-  discovery::KnownPeers known_peers;  // loaded once at startup, shared by reference
-  topology::ScreenArrangement screen_arrangement;  // Master-only: where each known peer's cluster sits, loaded once
+  std::vector<display::MonitorInfo> local_monitors;
+  discovery::KnownPeers known_peers;
+  topology::ScreenArrangement screen_arrangement;
   std::unique_ptr<discovery::Announcer> announcer;
   std::unique_ptr<discovery::Listener> listener;
   std::unique_ptr<discovery::TcpServer> tcp_server;  // Master only
-  std::unique_ptr<discovery::TcpClient> tcp_client;  // Slave only, set on Connect click
-  // UI-controlled (Discovery screen's Connection tab), shared by both
-  // roles' notion of "how patient to be with a quiet connection": on
-  // Slave, how long TcpClient's auto-reconnect loop keeps retrying a
-  // continuous stretch of disconnection before giving up; on Master, how
-  // long TcpServer tolerates a Connected session with no traffic (real
-  // messages or heartbeats) before force-disconnecting it, the same as the
-  // emergency-escape hotkey's manual disconnect. One shared number rather
-  // than two separate settings since both are really the same question
-  // ("how long is too long to hear nothing") asked from either side.
+  std::unique_ptr<discovery::TcpClient> tcp_client;  // Slave only.
+  // Maximum reconnect or idle-connection duration.
   int connection_timeout_s = 10;
-  // Slave-only, UI-controlled (Discovery screen's Connection tab): whether
-  // pump_auto_connect() (auto_connect_pump.cpp) should automatically start
-  // a TcpClient toward any discovered Master already in known_peers,
-  // without the user having to click Connect themselves.
+  // Enables automatic connections to discovered Masters.
   bool auto_connect_enabled = true;
-  // Slave-only: device IDs to skip in pump_auto_connect() for the rest of
-  // this session, either because Master sent kMsgGoAway (see
-  // ConnectionInfo::go_away_received) or the user clicked Disconnect
-  // locally. Cleared for a given device the moment a connection to it
-  // reaches Connected again, by either an auto-connect attempt or a
-  // manual Connect click.
+  // Masters not eligible for automatic reconnection in this session.
   std::unordered_set<uint64_t> auto_connect_suppressed;
 
-  // Master-only input capture/handoff state (brief §3.2), driven once per
-  // frame by pump_input() in input_pump.cpp.
+  // Master-side input capture and handoff state.
   input::InputHook input_hook;
-  bool input_hook_active = false;    // whether install() has been called (tracks the Connected transition)
+  bool input_hook_active = false;
   bool input_owned_by_master = true;
-  int32_t input_logical_x = 0, input_logical_y = 0;  // current owner's own local coordinate space
-  // A crossing's landing point sits exactly on the shared edge, so the
-  // frame right after a handoff is already touching the boundary that
-  // would trigger crossing back the other way. Set on every handoff (both
-  // directions), consumed (and cleared) by the very next frame's crossing
-  // check so a stray post-handoff jitter can't immediately bounce it back.
+  int32_t input_logical_x = 0, input_logical_y = 0;
+  // Suppresses boundary detection for the frame after a handoff.
   bool input_just_handed_off = false;
-  // Currently-held keys. Feeds the on-screen key monitor, the emergency
-  // hotkey check, and -- the reason it carries scancodes -- the explicit
-  // release both handoffs now send to the side losing control.
+  // Keys held on the current input owner.
   std::vector<HeldKey> input_held_keys;
 
-  // Audio routing, Slave -> Master (brief §3.3), driven once per frame by
-  // pump_audio() in audio_pump.cpp. Only the pair matching this machine's
-  // current role is ever populated.
-  bool audio_active = false;  // tracks the Connected transition, same idea as input_hook_active
+  // Slave-to-Master audio state.
+  bool audio_active = false;
   std::unique_ptr<audio::AudioPlayback> audio_playback;      // Master only
   std::unique_ptr<audio::AudioChannel> audio_recv_channel;   // Master only, wraps tcp_server's audio_socket()
   audio::AudioFormat audio_master_active_format;  // Master only: what audio_playback is currently configured for
@@ -98,78 +70,32 @@ struct AppState {
   socket_t audio_send_socket = kInvalidSocket;                // Slave only; AudioChannel doesn't own the socket
   audio::AudioFormat audio_active_format;  // Slave only: what audio_capture is currently running with
 
-  // Slave-only, UI-controlled (Discovery screen's Audio tab): whether to
-  // capture/send at all, and at what quality. pump_audio() compares these
-  // against audio_active_format/audio_active each frame and restarts
-  // capture whenever they differ from what's currently running. Editable
-  // either by the user directly on Slave, or overwritten by pump_audio()
-  // when a new request arrives from Master (see audio_last_applied_
-  // master_control_seq below) -- either way, the same fields drive
-  // capture, so both paths are handled by one code path.
+  // Slave-side capture settings requested by the local UI or Master.
   bool audio_send_enabled = true;
   audio::AudioFormat audio_desired_format;
 
-  // Bidirectional audio settings sync: either machine's Audio tab can now
-  // edit these settings, and whichever side changes them announces the
-  // change to the other over the existing SecureChannel (kMsgAudioStatus
-  // Slave->Master, kMsgAudioControl Master->Slave) so both UIs and the
-  // actual capture/playback stay consistent regardless of which side the
-  // user touches.
-
-  // Master-only, UI-controlled: what Master wants Slave's capture set to.
-  // pump_audio() sends this to Slave once per connection and again on
-  // every subsequent change (tracked via audio_master_last_sent_*).
+  // Master-side requested capture settings.
   bool audio_master_desired_send_enabled = true;
   audio::AudioFormat audio_master_desired_format;
-  // Until the user actually touches one of the Audio tab's request controls
-  // (see ui.cpp's draw_audio_tab), audio_master_desired_* mirrors whatever
-  // Slave is actually reporting instead of sitting on its own stale default
-  // -- otherwise the moment a connection came up, Master would silently push
-  // its default (48kHz/16-bit/enabled) as a real request even though the
-  // user never asked for anything. Set on the first edit and reset on
-  // disconnect (see pump_master()), so each connection starts back in the
-  // mirroring state.
+  // False while Master mirrors the settings reported by Slave.
   bool audio_master_overridden = false;
   bool audio_master_control_sent = false;  // at least one kMsgAudioControl sent this connection
   bool audio_master_last_sent_enabled = true;
   audio::AudioFormat audio_master_last_sent_format;
 
-  // Slave-only: tracks the last kMsgAudioControl actually applied from
-  // Master (by sequence number, so a request is applied exactly once
-  // rather than every frame, which would otherwise fight a local edit
-  // made in between) and the last status Slave itself reported to Master
-  // (so a local change, including disabling sending, is announced exactly
-  // once rather than repeated every frame).
+  // Slave-side message and status synchronization state.
   uint32_t audio_last_applied_master_control_seq = 0;
   bool audio_status_reported = false;  // at least one kMsgAudioStatus sent this connection
   bool audio_last_reported_send_enabled = true;
   audio::AudioFormat audio_last_reported_format;
 
-  // Clipboard sync, both directions, driven once per frame by
-  // pump_clipboard() in clipboard_pump.cpp. Symmetric by design (either
-  // side copying something pushes it to the other), unlike audio's
-  // Slave-only capture -- so unlike audio_pump.cpp's state, these fields
-  // aren't split into Master-only/Slave-only halves.
-  //
-  // clipboard_last_seen is the last content read_clipboard() reported,
-  // regardless of source (a local copy, or the echo of our own
-  // write_clipboard() call below) -- used purely to detect "the OS
-  // clipboard's content changed since the last check" without re-reading
-  // and re-comparing on every single frame.
+  // Bidirectional clipboard synchronization state.
   bool clipboard_last_seen_valid = false;
   clipboard::ClipboardContent clipboard_last_seen;
-  // clipboard_last_applied is specifically the last content this process
-  // itself wrote via write_clipboard() (i.e. content that just arrived
-  // from the peer). When clipboard_last_seen changes to match this, that
-  // change is our own echo, not a new local copy -- so it must NOT be
-  // sent back to the peer, or the two sides would ping-pong the same
-  // content back and forth forever.
+  // Last content written locally from a peer, used to suppress echoes.
   bool clipboard_last_applied_valid = false;
   clipboard::ClipboardContent clipboard_last_applied;
-  // Throttles read_clipboard() to about once a second rather than every
-  // frame -- on X11 it round-trips through the selection-owner protocol,
-  // far more expensive than a plain memory read, and clipboard changes
-  // don't need frame-rate responsiveness anyway.
+  // Time of the most recent clipboard poll.
   std::chrono::steady_clock::time_point clipboard_last_check{};
 };
 

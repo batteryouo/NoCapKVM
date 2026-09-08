@@ -206,19 +206,7 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
     state.tcp_server->send_input(input::kMsgKey, payload.data(), payload.size());
   }
 
-  // Fold the clamp back in now that the overshoots above have been read.
-  // Only the crossing axis of a crossable edge may keep its overshoot --
-  // that's what lets a gentle sustained push accumulate across frames until
-  // it clears kReturnMargin. Everywhere else the position has to come back
-  // inside the peer's bounds, exactly like an OS clamps a cursor at a
-  // desktop edge. Without this, pushing against any of the three edges that
-  // face nothing just ran state.input_logical_x/y off into empty space at
-  // full mouse speed, with no limit and nothing to bring it back: the
-  // cursor sat pinned at the edge (the peer only ever sees bc.clamped_*)
-  // while the logical position drifted thousands of pixels away, so getting
-  // it back meant dragging the mouse the other way for exactly as long as
-  // it had been pushed. Reported as "sliding in the other three directions
-  // acts like there's another screen over there".
+  // Preserve overshoot only on an edge that can return control to Master.
   if (crossable_edge) {
     if (horizontal) state.input_logical_y = bc.clamped_y;
     else state.input_logical_x = bc.clamped_x;
@@ -242,11 +230,7 @@ void handle_slave_owned(AppState& state, const discovery::ConnectionInfo& info, 
   state.input_logical_x = cross.x + (horizontal ? overshoot : 0);
   state.input_logical_y = cross.y + (horizontal ? 0 : overshoot);
   state.input_just_handed_off = true;
-  // Clear Slave before handing control back, not after: from the next line
-  // on, nothing this user does reaches Slave at all. Note this deliberately
-  // replaces a send_modifier_sync() of the *live* mask, which re-asserted
-  // whatever was held as a fresh keydown on the machine about to stop
-  // hearing about it -- the exact opposite of what leaving requires.
+  // Release remote keys before input stops reaching Slave.
   release_held_keys_on_slave(state);
   state.input_hook.resume(state.input_logical_x, state.input_logical_y);
 }
@@ -278,10 +262,7 @@ void pump_input(AppState& state) {
     state.input_hook.install();
     state.input_hook_active = true;
     state.input_owned_by_master = true;
-    // Seed from the real cursor position (matching InputHook's own internal
-    // anchor) rather than e.g. the screen center — otherwise logical
-    // tracking starts offset from reality until the mouse happens to visit
-    // wherever was guessed, throwing off the first crossing check.
+    // Start logical tracking from the cursor's actual position.
     if (!input::get_local_cursor_pos(state.input_logical_x, state.input_logical_y)) {
       const topology::ClusterBounds b = topology::compute_bounds(state.local_monitors);
       state.input_logical_x = (b.min_x + b.max_x) / 2;
@@ -291,10 +272,7 @@ void pump_input(AppState& state) {
 
   const input::InputFrame frame = state.input_hook.poll();
 
-  // Tracks what's currently held, independent of ownership. Started out as
-  // just the on-screen key monitor (so hotkey detection issues could be
-  // observed rather than guessed at); it's now also what both handoffs
-  // release toward the side they're leaving, so it carries scancodes too.
+  // Track held keys so handoffs can release them on the previous owner.
   for (const auto& k : frame.keys) {
     auto& held = state.input_held_keys;
     const auto it = std::find_if(held.begin(), held.end(), [&](const HeldKey& h) { return h.vk == k.vk; });
@@ -310,14 +288,7 @@ void pump_input(AppState& state) {
   }
 
   if (escape_combo_held(state) && !state.input_owned_by_master) {
-    // Land at the center of Master's own bounds, not wherever the real
-    // cursor happens to be sitting: since suppress() stopped moving the
-    // cursor at all, the real position (and the hook's anchor) is still
-    // exactly the edge that was originally crossed -- resuming there with
-    // no margin meant the very next frame immediately re-detected that
-    // same edge and crossed straight back to Slave (the reported
-    // back-and-forth toggle). An emergency reset can afford a visible
-    // jump; landing solidly in the interior is what actually matters.
+    // Resume in the interior to prevent an immediate boundary crossing.
     const topology::ClusterBounds b = topology::compute_bounds(state.local_monitors);
     const int32_t safe_x = (b.min_x + b.max_x) / 2;
     const int32_t safe_y = (b.min_y + b.max_y) / 2;

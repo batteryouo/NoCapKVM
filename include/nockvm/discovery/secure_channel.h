@@ -7,11 +7,7 @@
 
 namespace nockvm::discovery {
 
-// Minimal typed-message channel over a connected socket, keyed by the
-// TransportKeys produced by the Noise IK handshake (noise_ik.h). Replaces
-// raw post-handshake traffic with length-prefixed AEAD frames of
-// [1-byte msg_type][payload]. send_key/recv_key each carry their own
-// independent counter nonce, per Noise transport-mode convention.
+// Typed encrypted channel using length-prefixed [msg_type][payload] frames.
 class SecureChannel {
 public:
   SecureChannel(socket_t sock, TransportKeys keys);

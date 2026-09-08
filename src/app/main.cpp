@@ -31,8 +31,7 @@ namespace {
 void glfw_error_callback(int error, const char* description) { std::fprintf(stderr, "GLFW error %d: %s\n", error, description); }
 
 void window_close_callback(GLFWwindow* window) {
-  // Treat the X button as "hide to tray", not "quit" -- only the tray's
-  // own quit trigger (request_quit(), see quit.h) ends the process.
+  // Closing the window hides it; quitting is handled by the tray action.
   glfwSetWindowShouldClose(window, GLFW_FALSE);
   glfwHideWindow(window);
 }
@@ -40,13 +39,7 @@ void window_close_callback(GLFWwindow* window) {
 #ifdef _WIN32
 WNDPROC g_original_wndproc = nullptr;
 
-// Master's capture (nockvm/input/hook.cpp) needs raw, unclamped mouse
-// deltas while input is suppressed -- WH_MOUSE_LL's own position field is
-// clamped to the real desktop bounds, which is exactly the problem this
-// exists to work around. Raw Input reports HID deltas directly, bypassing
-// that clamp entirely (the same mechanism games use for unbounded
-// mouse-look). This subclasses the GLFW window to observe WM_INPUT;
-// everything else is forwarded to GLFW's own procedure untouched.
+// Raw Input supplies unconstrained relative deltas while the input hook suppresses events.
 LRESULT CALLBACK raw_input_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   if (msg == WM_INPUT) {
     UINT size = 0;
@@ -92,14 +85,7 @@ void uninstall_raw_input(GLFWwindow* window) {
 
 int main() {
 #ifndef _WIN32
-  // Xlib is not thread-safe by default. This process makes Xlib calls
-  // from two different threads on Linux -- nockvm::display's monitor
-  // polling (on TcpClient's background thread, see tcp_client.cpp's
-  // periodic get_local_monitors() re-check) and nockvm::clipboard's X11
-  // implementation (driven from this thread by clipboard_pump.cpp) --
-  // without ever having declared that. XInitThreads() must be called
-  // before any other Xlib call in the process, GLFW's own X11 backend's
-  // internal calls during glfwInit() included, hence right here first.
+  // XInitThreads must precede GLFW initialization because Xlib is used from multiple threads.
   XInitThreads();
 #endif
   glfwSetErrorCallback(glfw_error_callback);
@@ -166,10 +152,7 @@ int main() {
     glfwSwapBuffers(window);
   }
 
-  // Temporary: times each shutdown step so a reported multi-second close-time
-  // stall can be pinned to a specific step instead of guessed at. Remove once
-  // that's diagnosed. Only visible when run from a console the process
-  // inherits stdio from (WIN32-subsystem apps have none of their own).
+  // Emit per-step shutdown timing for diagnosing close-time stalls.
   const auto shutdown_start = std::chrono::steady_clock::now();
   auto log_step = [&](const char* label) {
     const auto now = std::chrono::steady_clock::now();

@@ -7,10 +7,7 @@
 namespace nockvm::audio {
 namespace {
 
-// Bundled into one heap allocation: ma_device keeps using its ma_context
-// for as long as it's running, so the context can't be a local that goes
-// out of scope when start() returns -- both need to live exactly as long
-// as the device does.
+// The context and device share a lifetime.
 struct CaptureImpl {
   ma_context context;
   ma_device device;
@@ -31,12 +28,7 @@ bool select_device_id(ma_context&, ma_device_id&) { return false; }  // unused; 
 #else
 constexpr ma_device_type kDeviceType = ma_device_type_capture;
 
-// No loopback flag exists outside WASAPI -- find the capture device whose
-// name looks like a PulseAudio/PipeWire "monitor" source (their convention
-// for "this is actually a sink's output, exposed as a capture source").
-// Unverified against a real desktop environment: the exact name miniaudio
-// surfaces for this depends on the PulseAudio/PipeWire backend and the
-// system's own device naming, both out of this project's control.
+// Prefer a PulseAudio or PipeWire monitor source for output capture.
 bool select_device_id(ma_context& context, ma_device_id& out_id) {
   ma_device_info* capture_infos = nullptr;
   ma_uint32 capture_count = 0;
@@ -51,7 +43,7 @@ bool select_device_id(ma_context& context, ma_device_id& out_id) {
       return true;
     }
   }
-  return false;  // nothing matched -- caller falls back to the default device
+  return false;
 }
 #endif
 
@@ -85,9 +77,7 @@ bool AudioCapture::start(const AudioFormat& format, std::function<void(const uin
     delete impl;
     return false;
   }
-  // See playback.cpp's matching split: a device that initialized but failed
-  // to start still owns backend resources that only ma_device_uninit()
-  // releases.
+  // A successfully initialized device must be uninitialized when start fails.
   if (ma_device_start(&impl->device) != MA_SUCCESS) {
     ma_device_uninit(&impl->device);
     ma_context_uninit(&impl->context);

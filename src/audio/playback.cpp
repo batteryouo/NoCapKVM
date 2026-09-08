@@ -16,8 +16,7 @@ constexpr size_t kMaxDepth = 200;
 
 ma_format to_ma_format(uint8_t bit_depth) { return bit_depth == 8 ? ma_format_u8 : ma_format_s16; }
 
-// See capture.cpp's CaptureImpl comment: context and device must share the
-// device's lifetime, not just start()'s.
+// The context and device share a lifetime.
 struct PlaybackImpl {
   ma_context context;
   ma_device device;
@@ -93,10 +92,7 @@ bool AudioPlayback::start(const AudioFormat& format) {
     delete impl;
     return false;
   }
-  // Separate from the init check above: once ma_device_init() has succeeded
-  // the device owns real resources (backend handles, its own thread), and
-  // folding this into the same condition leaked all of them every time a
-  // device initialized but refused to start.
+  // A successfully initialized device must be uninitialized when start fails.
   if (ma_device_start(&impl->device) != MA_SUCCESS) {
     ma_device_uninit(&impl->device);
     ma_context_uninit(&impl->context);

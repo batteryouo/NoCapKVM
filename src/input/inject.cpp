@@ -83,8 +83,7 @@ bool get_local_cursor_pos(int32_t& x, int32_t& y) {
   return true;
 }
 
-// SendInput's own GetSystemMetrics-based normalization is used instead; see
-// the Linux branch below, which needs this to size its virtual device.
+// Windows normalizes absolute coordinates against the virtual desktop.
 void configure_pointer_bounds(int32_t, int32_t, int32_t, int32_t) {}
 
 }  // namespace nockvm::input
@@ -110,12 +109,7 @@ void emit(libevdev_uinput* dev, uint16_t type, uint16_t code, int32_t value) {
 
 void sync_report(libevdev_uinput* dev) { emit(dev, EV_SYN, SYN_REPORT, 0); }
 
-// Builds the device via libevdev_new()/enable_event_code() and hands it to
-// libevdev_uinput_create_from_device(), which opens /dev/uinput itself
-// (LIBEVDEV_UINPUT_OPEN_MANAGED) and does the UI_DEV_SETUP/UI_DEV_CREATE
-// ioctl sequence internally -- a thin wrapper around the same kernel API,
-// maintained upstream by the same people who maintain libinput, so it's
-// preferred here over hand-rolling the ioctls directly.
+// Creates a managed uinput device with the requested capabilities.
 libevdev_uinput* create_device(const char* name, void (*configure)(libevdev*)) {
   libevdev* dev = libevdev_new();
   libevdev_set_name(dev, name);
@@ -125,11 +119,7 @@ libevdev_uinput* create_device(const char* name, void (*configure)(libevdev*)) {
   const int rc = libevdev_uinput_create_from_device(dev, LIBEVDEV_UINPUT_OPEN_MANAGED, &uidev);
   libevdev_free(dev);
   if (rc < 0) {
-    // Silently swallowing this used to mean every subsequent inject_*()
-    // call on this device dropped its event forever with zero visible
-    // sign anything was wrong -- if this fails once (e.g. a transient
-    // permissions/module-load race right at startup) print it so a
-    // real-hardware repro is actually diagnosable from the console.
+    // uinput availability can change while the application is running.
     std::fprintf(stderr, "nockvm: failed to create uinput device \"%s\": %s (check /dev/uinput permissions)\n", name,
                  std::strerror(-rc));
     return nullptr;
@@ -137,13 +127,7 @@ libevdev_uinput* create_device(const char* name, void (*configure)(libevdev*)) {
   return uidev;
 }
 
-// Lazily created, kept open for the process's lifetime once it succeeds --
-// the kernel tears the virtual device down when this closes at process
-// exit. Deliberately retries on every call while dev is still null (not
-// cached as a permanent failure): the one real failure mode seen in
-// practice is a transient race at process start, not a persistent one, so
-// giving up forever after a single failed attempt would turn a one-off
-// hiccup into "input never works again until the whole app restarts".
+// Retry creation until uinput becomes available; a successful device lives for the process lifetime.
 libevdev_uinput* ensure_keyboard_dev() {
   static libevdev_uinput* dev = nullptr;
   if (dev) return dev;
@@ -158,10 +142,7 @@ libevdev_uinput* ensure_mouse_dev() {
   static libevdev_uinput* dev = nullptr;
   if (dev) return dev;
   dev = create_device("NoCapKVM Virtual Mouse", [](libevdev* d) {
-    // Without this, libinput has nothing telling it this absolute-axis
-    // device is a pointer rather than e.g. a touchscreen/tablet, which is
-    // a real source of inconsistent behavior across compositors -- some
-    // still move the cursor without it, some don't.
+    // Classify the absolute-axis device as a pointer for libinput.
     libevdev_enable_property(d, INPUT_PROP_POINTER);
 
     libevdev_enable_event_type(d, EV_KEY);
