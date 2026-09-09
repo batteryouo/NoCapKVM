@@ -2,6 +2,7 @@
 #include "nockvm/clipboard/clipboard.h"
 #include "nockvm/discovery/clipboard_protocol.h"
 #include "nockvm/discovery/connection_types.h"
+#include "nockvm/telemetry/counters.h"
 
 namespace nockvm::app {
 namespace {
@@ -10,6 +11,7 @@ constexpr auto kPollInterval = std::chrono::seconds(1);
 
 void apply_and_track(AppState& state, clipboard::ClipboardContent content) {
   clipboard::write_clipboard(content);
+  telemetry::counters().clipboard_received.fetch_add(1, std::memory_order_relaxed);
   state.clipboard_last_applied = content;
   state.clipboard_last_applied_valid = true;
   state.clipboard_last_seen = std::move(content);
@@ -53,6 +55,7 @@ void sync_clipboard(AppState& state, bool connected, SendFn&& send, TakeFn&& tak
   const uint8_t msg_type =
       current->type == clipboard::ContentType::Text ? discovery::kMsgClipboardText : discovery::kMsgClipboardImage;
   send(msg_type, current->data.data(), current->data.size());
+  telemetry::counters().clipboard_sent.fetch_add(1, std::memory_order_relaxed);
 }
 
 }  // namespace

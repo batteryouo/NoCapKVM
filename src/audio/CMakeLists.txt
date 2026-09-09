@@ -20,7 +20,7 @@ add_library(nockvm_audio STATIC
   miniaudio_impl.cpp
 )
 target_include_directories(nockvm_audio PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(nockvm_audio PUBLIC nockvm_common nockvm_discovery miniaudio)
+target_link_libraries(nockvm_audio PUBLIC nockvm_common nockvm_discovery nockvm_telemetry miniaudio)
 
 if(NOT WIN32)
   # miniaudio dlopen()s the real PulseAudio/ALSA/etc libraries at runtime

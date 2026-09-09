@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <map>
@@ -36,6 +37,18 @@ public:
   // pop() isn't draining them at all.
   size_t depth() const;
 
+  // The max_depth passed to the constructor -- exposed so callers (e.g.
+  // telemetry's periodic summary) can report depth alongside the ceiling
+  // it's measured against without duplicating the value.
+  size_t capacity() const { return max_depth_; }
+
+  // Cumulative count of "at cap" episodes since construction, debounced by
+  // a recovery threshold (see recovery_threshold_) so a sustained overflow
+  // counts as one episode rather than one per dropped packet. Atomic and
+  // I/O-free: safe to poll from another thread (e.g. a periodic reporter)
+  // without synchronizing with push()/pop().
+  uint64_t cap_episodes() const { return cap_episodes_.load(std::memory_order_relaxed); }
+
   // Returns the next frame to play once enough have buffered up
   // (target_depth reached); nullopt means "not ready yet" or "that
   // sequence number never arrived" — caller should play silence either
@@ -48,6 +61,11 @@ public:
   std::optional<std::vector<uint8_t>> pop();
 
 private:
+  // Clears at_cap_ once buffer_.size() has drained to at or below
+  // recovery_threshold_. Callable from both push() and pop(); caller must
+  // hold mutex_.
+  void clear_at_cap_if_recovered();
+
   mutable std::mutex mutex_;
   std::map<uint32_t, std::vector<uint8_t>> buffer_;
   size_t target_depth_;
@@ -58,8 +76,13 @@ private:
   // forever. An unbounded container fed straight off the network is not a
   // shape this should ever have, whatever the rates happen to be.
   size_t max_depth_;
+  // Hysteresis floor for cap_episodes(): at_cap_ only clears once depth()
+  // drops to at or below this. Computed once from max_depth_.
+  size_t recovery_threshold_;
   bool started_ = false;
   uint32_t next_seq_ = 0;
+  std::atomic<bool> at_cap_{false};
+  std::atomic<uint64_t> cap_episodes_{0};
   // Once playback's own next_seq_ races ahead of what the sender has
   // actually gotten to -- inevitable after any sufficiently long stall
   // (a burst of loss, or just sender/receiver clock drift accumulating

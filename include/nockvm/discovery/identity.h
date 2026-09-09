@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include "nockvm/discovery/types.h"
@@ -10,6 +11,12 @@ namespace nockvm::discovery {
 // storing one on first run. Config dir resolution honors the NOCKVM_HOME
 // env var override before falling back to the platform default.
 uint64_t get_or_create_device_id();
+
+// The same config directory get_or_create_device_id()/known_peers.json/
+// etc. already live under -- exposed so callers elsewhere in the app (e.g.
+// telemetry's log location) can place their own files alongside it without
+// each re-deriving the platform/NOCKVM_HOME resolution themselves.
+std::filesystem::path get_config_dir();
 
 std::string get_hostname();
 

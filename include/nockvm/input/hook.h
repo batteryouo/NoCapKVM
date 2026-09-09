@@ -87,4 +87,12 @@ private:
 // non-Windows builds and when no InputHook is currently installed.
 void feed_raw_delta(int32_t dx, int32_t dy);
 
+// Whether the currently-installed InputHook (if any) is suppressed —
+// i.e. feed_raw_delta() above would actually do something. Lets a WM_INPUT
+// handler (main.cpp's raw_input_wndproc) skip its own, more expensive
+// per-event work entirely when the answer is no, rather than paying for it
+// on every mouse-report-rate event just to feed a delta nothing reads.
+// False on non-Windows builds and when no InputHook is currently installed.
+bool is_suppressed();
+
 }  // namespace nockvm::input

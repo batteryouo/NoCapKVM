@@ -21,3 +21,15 @@ add_test(NAME test_audio COMMAND test_audio)
 add_executable(test_clipboard test_clipboard.cpp)
 target_link_libraries(test_clipboard PRIVATE nockvm_clipboard)
 add_test(NAME test_clipboard COMMAND test_clipboard)
+
+add_executable(test_telemetry test_telemetry.cpp)
+target_link_libraries(test_telemetry PRIVATE nockvm_telemetry)
+add_test(NAME test_telemetry COMMAND test_telemetry)
+
+# retry_backoff.h is a header-only, dependency-free policy class living
+# alongside src/app's other pump logic -- included directly rather than
+# linking nockvm_app (an executable, not a library, and pulls in GLFW/
+# ImGui/Windows deps this test has no need for).
+add_executable(test_retry_backoff test_retry_backoff.cpp)
+target_include_directories(test_retry_backoff PRIVATE ${CMAKE_SOURCE_DIR}/src/app)
+add_test(NAME test_retry_backoff COMMAND test_retry_backoff)

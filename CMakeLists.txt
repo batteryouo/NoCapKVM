@@ -12,6 +12,7 @@ else()
 endif()
 
 add_subdirectory(src/common)
+add_subdirectory(src/telemetry)
 add_subdirectory(src/display)
 add_subdirectory(src/topology)
 add_subdirectory(src/input)

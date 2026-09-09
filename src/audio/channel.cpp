@@ -1,6 +1,7 @@
 #include "nockvm/audio/channel.h"
 #include <chrono>
 #include "nockvm/audio/protocol.h"
+#include "nockvm/telemetry/counters.h"
 
 namespace nockvm::audio {
 namespace {
@@ -36,7 +37,10 @@ bool AudioChannel::receive_nonblocking(uint32_t& seq, std::vector<uint8_t>& data
       recvfrom(sock_, reinterpret_cast<char*>(buf), sizeof(buf), 0, reinterpret_cast<sockaddr*>(&from), &from_len);
   if (received <= 0) return false;
 
-  return decode_frame(key_, buf, static_cast<size_t>(received), seq, data_out);
+  telemetry::counters().audio_packets_received.fetch_add(1, std::memory_order_relaxed);
+  const bool ok = decode_frame(key_, buf, static_cast<size_t>(received), seq, data_out);
+  if (!ok) telemetry::counters().audio_packets_rejected.fetch_add(1, std::memory_order_relaxed);
+  return ok;
 }
 
 }  // namespace nockvm::audio

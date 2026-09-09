@@ -24,6 +24,8 @@ uint64_t generate_device_id() {
 
 }  // namespace
 
+std::filesystem::path get_config_dir() { return config_dir(); }
+
 uint64_t get_or_create_device_id() {
   const std::filesystem::path dir = config_dir();
   const std::filesystem::path id_file = dir / "device_id";

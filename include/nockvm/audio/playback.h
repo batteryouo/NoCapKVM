@@ -28,6 +28,10 @@ public:
 
   // Diagnostic, surfaced in Master's UI: see JitterBuffer::depth().
   size_t buffered_packets() const;
+  // The ceiling buffered_packets() is measured against -- see JitterBuffer::capacity().
+  size_t buffer_capacity() const;
+  // See JitterBuffer::cap_episodes().
+  uint64_t buffer_cap_episodes() const;
 
 private:
   void* device_ = nullptr;  // ma_device*, opaque here to keep miniaudio out of this header

@@ -1,6 +1,7 @@
 #include "nockvm/audio/playback.h"
 #include <algorithm>
 #include <miniaudio.h>
+#include "nockvm/telemetry/counters.h"
 
 namespace nockvm::audio {
 namespace {
@@ -61,7 +62,13 @@ void data_callback(ma_device* device, void* output, const void* /*input*/, ma_ui
     out += n;
     remaining -= n;
   }
-  if (remaining > 0) std::fill(out, out + remaining, impl->silence_byte);
+  if (remaining > 0) {
+    std::fill(out, out + remaining, impl->silence_byte);
+    // Real-time callback thread: atomic increment only, no I/O -- see
+    // nockvm/telemetry/counters.h. The periodic reporter (main thread)
+    // reads and reports this count, never this thread.
+    telemetry::counters().audio_underruns.fetch_add(1, std::memory_order_relaxed);
+  }
 }
 
 }  // namespace
@@ -105,6 +112,8 @@ bool AudioPlayback::start(const AudioFormat& format) {
 }
 
 size_t AudioPlayback::buffered_packets() const { return buffer_->depth(); }
+size_t AudioPlayback::buffer_capacity() const { return buffer_->capacity(); }
+uint64_t AudioPlayback::buffer_cap_episodes() const { return buffer_->cap_episodes(); }
 
 void AudioPlayback::stop() {
   if (!device_) return;

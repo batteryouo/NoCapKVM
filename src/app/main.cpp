@@ -12,9 +12,13 @@
 #include "input_pump.h"
 #include "nockvm/discovery/identity.h"
 #include "nockvm/display/monitor_info.h"
+#include "nockvm/input/hook.h"
 #include "nockvm/input/inject.h"
+#include "nockvm/telemetry/counters.h"
+#include "nockvm/telemetry/telemetry.h"
 #include "nockvm/topology/crossing.h"
 #include "quit.h"
+#include "telemetry_pump.h"
 #include "tray.h"
 #include "ui.h"
 
@@ -42,15 +46,28 @@ WNDPROC g_original_wndproc = nullptr;
 // Raw Input supplies unconstrained relative deltas while the input hook suppresses events.
 LRESULT CALLBACK raw_input_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   if (msg == WM_INPUT) {
-    UINT size = 0;
-    GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
-    if (size > 0) {
-      std::vector<BYTE> buffer(size);
-      if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, buffer.data(), &size, sizeof(RAWINPUTHEADER)) ==
-          size) {
-        const auto* raw = reinterpret_cast<const RAWINPUT*>(buffer.data());
-        if (raw->header.dwType == RIM_TYPEMOUSE && !(raw->data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
-          nockvm::input::feed_raw_delta(raw->data.mouse.lLastX, raw->data.mouse.lLastY);
+    nockvm::telemetry::counters().raw_input_events.fetch_add(1, std::memory_order_relaxed);
+    // feed_raw_delta() below is a no-op unless input is currently
+    // suppressed (see hook.h) -- RIDEV_INPUTSINK still delivers WM_INPUT at
+    // full HID report rate the rest of the time (normally almost always,
+    // since suppression only happens while a Slave owns input), so paying
+    // for GetRawInputData's allocating query/copy then was pure waste with
+    // nothing to show for it. Skip the whole path when unsuppressed;
+    // raw_input_processed counts how often it actually runs, so comparing
+    // it against raw_input_events in the periodic summary shows how much
+    // of the incoming volume is genuinely processed versus cheaply skipped.
+    if (nockvm::input::is_suppressed()) {
+      nockvm::telemetry::counters().raw_input_processed.fetch_add(1, std::memory_order_relaxed);
+      UINT size = 0;
+      GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
+      if (size > 0) {
+        std::vector<BYTE> buffer(size);
+        if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, buffer.data(), &size,
+                             sizeof(RAWINPUTHEADER)) == size) {
+          const auto* raw = reinterpret_cast<const RAWINPUT*>(buffer.data());
+          if (raw->header.dwType == RIM_TYPEMOUSE && !(raw->data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
+            nockvm::input::feed_raw_delta(raw->data.mouse.lLastX, raw->data.mouse.lLastY);
+          }
         }
       }
     }
@@ -122,7 +139,10 @@ int main() {
   }
   nockvm::app::resume_last_role_if_any(state);
 
+  nockvm::telemetry::init(nockvm::discovery::get_config_dir() / "logs");
+
   while (!glfwWindowShouldClose(window) && !nockvm::app::quit_requested()) {
+    const auto frame_start = std::chrono::steady_clock::now();
     glfwPollEvents();
     nockvm::app::pump_input(state);
     nockvm::app::pump_audio(state);
@@ -150,6 +170,10 @@ int main() {
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
     glfwSwapBuffers(window);
+
+    const double frame_time_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_start).count();
+    nockvm::app::pump_telemetry(state, frame_time_ms, glfwGetWindowAttrib(window, GLFW_VISIBLE) != 0);
   }
 
   // Emit per-step shutdown timing for diagnosing close-time stalls.

@@ -1,5 +1,6 @@
 #include <cassert>
 #include "nockvm/audio/jitter_buffer.h"
+#include "nockvm/telemetry/counters.h"
 
 using namespace nockvm::audio;
 
@@ -143,6 +144,68 @@ int main() {
 
     const auto g = buf.pop();
     assert(g.has_value() && (*g)[0] == 1);
+  }
+
+  // capacity() reports the max_depth actually in effect, including the
+  // below-target_depth clamp exercised above.
+  {
+    JitterBuffer buf(3, 100);
+    assert(buf.capacity() == 100);
+    JitterBuffer clamped(3, 1);
+    assert(clamped.capacity() == 3);
+  }
+
+  // Pushing past the cap increments the shared telemetry counter, so the
+  // periodic summary can report how many packets the cap has discarded.
+  {
+    auto& counters = nockvm::telemetry::counters();
+    const uint64_t before = counters.audio_packets_dropped_cap.load();
+    JitterBuffer buf(2, 4);
+    for (uint32_t seq = 0; seq < 10; ++seq) buf.push(seq, {static_cast<uint8_t>(seq)});
+    assert(counters.audio_packets_dropped_cap.load() > before);
+  }
+
+  // A sustained overflow counts as one episode, not one per dropped
+  // packet.
+  {
+    JitterBuffer buf(2, 20);
+    for (uint32_t seq = 0; seq < 100; ++seq) buf.push(seq, {static_cast<uint8_t>(seq)});
+    assert(buf.depth() == 20);
+    assert(buf.cap_episodes() == 1);
+
+    // Reaching the ceiling without draining below the recovery threshold
+    // (18 for this buffer) does not clear the cap state.
+    assert(buf.pop().has_value());
+    buf.push(200, {1});
+    assert(buf.depth() == 20);
+    assert(buf.cap_episodes() == 1);
+
+    // Draining below the recovery threshold clears the cap state; the
+    // next overflow counts as a new episode.
+    for (int i = 0; i < 5; ++i) assert(buf.pop().has_value());
+    assert(buf.depth() == 15);
+    buf.push(201, {1});
+    assert(buf.depth() == 16);
+    assert(buf.cap_episodes() == 1);
+
+    for (uint32_t seq = 202; seq < 212; ++seq) buf.push(seq, {static_cast<uint8_t>(seq)});
+    assert(buf.depth() == 20);
+    assert(buf.cap_episodes() == 2);
+  }
+
+  // Draining via pop() alone, with no intervening push(), also clears the
+  // cap state.
+  {
+    JitterBuffer buf(2, 20);
+    for (uint32_t seq = 0; seq < 100; ++seq) buf.push(seq, {static_cast<uint8_t>(seq)});
+    assert(buf.cap_episodes() == 1);
+
+    for (int i = 0; i < 5; ++i) assert(buf.pop().has_value());
+    assert(buf.depth() == 15);
+
+    for (uint32_t seq = 300; seq < 320; ++seq) buf.push(seq, {static_cast<uint8_t>(seq)});
+    assert(buf.depth() == 20);
+    assert(buf.cap_episodes() == 2);
   }
 
   return 0;

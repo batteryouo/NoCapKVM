@@ -159,6 +159,8 @@ void feed_raw_delta(int32_t dx, int32_t dy) {
   g_instance->pending_.dy += dy;
 }
 
+bool is_suppressed() { return g_instance && g_instance->suppress_.load(); }
+
 }  // namespace nockvm::input
 
 #else  // !_WIN32
@@ -174,6 +176,7 @@ void InputHook::resume() {}
 void InputHook::resume(int32_t, int32_t) {}
 InputFrame InputHook::poll() { return InputFrame{}; }
 void feed_raw_delta(int32_t, int32_t) {}
+bool is_suppressed() { return false; }
 
 }  // namespace nockvm::input
 

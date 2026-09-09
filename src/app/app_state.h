@@ -18,6 +18,7 @@
 #include "nockvm/display/monitor_info.h"
 #include "nockvm/input/hook.h"
 #include "nockvm/topology/arrangement.h"
+#include "retry_backoff.h"
 
 namespace nockvm::app {
 
@@ -63,12 +64,18 @@ struct AppState {
   // Slave-to-Master audio state.
   bool audio_active = false;
   std::unique_ptr<audio::AudioPlayback> audio_playback;      // Master only
+  // Master only: incremented each time audio_playback is (re)constructed,
+  // so telemetry can tell a fresh instance's counters (which restart at 0)
+  // apart from the previous instance's.
+  uint64_t audio_playback_generation = 0;
   std::unique_ptr<audio::AudioChannel> audio_recv_channel;   // Master only, wraps tcp_server's audio_socket()
   audio::AudioFormat audio_master_active_format;  // Master only: what audio_playback is currently configured for
   std::unique_ptr<audio::AudioCapture> audio_capture;        // Slave only
   std::unique_ptr<audio::AudioChannel> audio_send_channel;   // Slave only
   socket_t audio_send_socket = kInvalidSocket;                // Slave only; AudioChannel doesn't own the socket
   audio::AudioFormat audio_active_format;  // Slave only: what audio_capture is currently running with
+  // Slave-only: gates AudioCapture::start() retries after a failure. See retry_backoff.h.
+  RetryBackoff audio_slave_start_backoff{std::chrono::seconds(2)};
 
   // Slave-side capture settings requested by the local UI or Master.
   bool audio_send_enabled = true;
@@ -97,6 +104,13 @@ struct AppState {
   clipboard::ClipboardContent clipboard_last_applied;
   // Time of the most recent clipboard poll.
   std::chrono::steady_clock::time_point clipboard_last_check{};
+
+  // Telemetry, driven once per frame by pump_telemetry() in
+  // telemetry_pump.cpp. Tracks the last-logged window visibility/
+  // connection state purely to edge-trigger transition log lines -- the
+  // actual counters live in nockvm::telemetry::counters(), not here.
+  bool telemetry_last_window_visible = true;
+  discovery::ConnectionState telemetry_last_connection_state = discovery::ConnectionState::Idle;
 };
 
 }  // namespace nockvm::app

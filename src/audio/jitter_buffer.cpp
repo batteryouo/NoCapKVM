@@ -1,4 +1,6 @@
 #include "nockvm/audio/jitter_buffer.h"
+#include <algorithm>
+#include "nockvm/telemetry/counters.h"
 
 namespace nockvm::audio {
 namespace {
@@ -11,34 +13,67 @@ namespace {
 // playback silent for the rest of the connection.
 constexpr size_t kMaxConsecutiveMisses = 40;
 
+// cap_episodes()'s hysteresis margin: 10% of max_depth_ (at least 1),
+// below the ceiling. depth() has to drain back down that far, not just
+// off the exact ceiling by one packet, before a fresh episode can start.
+size_t compute_recovery_threshold(size_t max_depth) {
+  const size_t margin = std::max<size_t>(1, max_depth / 10);
+  return margin < max_depth ? max_depth - margin : 0;
+}
+
 }  // namespace
 
 JitterBuffer::JitterBuffer(size_t target_depth, size_t max_depth)
-    : target_depth_(target_depth), max_depth_(max_depth < target_depth ? target_depth : max_depth) {}
+    : target_depth_(target_depth), max_depth_(max_depth < target_depth ? target_depth : max_depth),
+      recovery_threshold_(compute_recovery_threshold(max_depth_)) {}
 
 void JitterBuffer::push(uint32_t seq, std::vector<uint8_t> frame) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (started_ && seq < next_seq_) return;  // too late to matter, drop
-  buffer_[seq] = std::move(frame);
+  size_t dropped_count = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (started_ && seq < next_seq_) return;  // too late to matter, drop
+    buffer_[seq] = std::move(frame);
 
-  // Over the ceiling: throw away the oldest and skip playback past them.
-  // Being this far behind means those frames were going to be heard late
-  // or not at all anyway, so dropping them costs a moment of audio and
-  // buys a bounded buffer -- the same trade this class already makes for
-  // ordinary loss and reordering. Without it, a sender even slightly
-  // faster than the playback device (which is the normal case between two
-  // machines' independent audio clocks) grows this map without limit for
-  // as long as the connection lasts.
-  while (buffer_.size() > max_depth_) {
-    const auto oldest = buffer_.begin();
-    if (started_ && oldest->first >= next_seq_) next_seq_ = oldest->first + 1;
-    buffer_.erase(oldest);
+    // Over the ceiling: throw away the oldest and skip playback past them.
+    // Being this far behind means those frames were going to be heard late
+    // or not at all anyway, so dropping them costs a moment of audio and
+    // buys a bounded buffer -- the same trade this class already makes for
+    // ordinary loss and reordering. Without it, a sender even slightly
+    // faster than the playback device (which is the normal case between
+    // two machines' independent audio clocks) grows this map without
+    // limit for as long as the connection lasts.
+    while (buffer_.size() > max_depth_) {
+      const auto oldest = buffer_.begin();
+      if (started_ && oldest->first >= next_seq_) next_seq_ = oldest->first + 1;
+      buffer_.erase(oldest);
+      ++dropped_count;
+    }
+    if (dropped_count > 0) {
+      if (!at_cap_.load(std::memory_order_relaxed)) {
+        at_cap_.store(true, std::memory_order_relaxed);
+        cap_episodes_.fetch_add(1, std::memory_order_relaxed);
+      }
+    } else {
+      clear_at_cap_if_recovered();
+    }
+  }
+
+  // Atomic counter increment only -- no logging or other I/O -- so this
+  // stays safe to call from a real-time or network thread.
+  if (dropped_count > 0) {
+    telemetry::counters().audio_packets_dropped_cap.fetch_add(dropped_count, std::memory_order_relaxed);
   }
 }
 
 size_t JitterBuffer::depth() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return buffer_.size();
+}
+
+void JitterBuffer::clear_at_cap_if_recovered() {
+  if (at_cap_.load(std::memory_order_relaxed) && buffer_.size() <= recovery_threshold_) {
+    at_cap_.store(false, std::memory_order_relaxed);
+  }
 }
 
 std::optional<std::vector<uint8_t>> JitterBuffer::pop() {
@@ -65,6 +100,7 @@ std::optional<std::vector<uint8_t>> JitterBuffer::pop() {
       started_ = false;
       consecutive_misses_ = 0;
       buffer_.clear();
+      clear_at_cap_if_recovered();
     }
     return std::nullopt;
   }
@@ -72,6 +108,7 @@ std::optional<std::vector<uint8_t>> JitterBuffer::pop() {
   consecutive_misses_ = 0;
   std::vector<uint8_t> frame = std::move(it->second);
   buffer_.erase(it);
+  clear_at_cap_if_recovered();
   return frame;
 }
 
