@@ -28,6 +28,8 @@
 #include <windows.h>
 #else
 #include <X11/Xlib.h>
+#include "ico_decode.h"
+#include "icon_path.h"
 #endif
 
 namespace {
@@ -39,6 +41,22 @@ void window_close_callback(GLFWwindow* window) {
   glfwSetWindowShouldClose(window, GLFW_FALSE);
   glfwHideWindow(window);
 }
+
+#ifndef _WIN32
+void set_window_icon(GLFWwindow* window) {
+  const auto icon = nockvm::app::load_ico_as_argb32(nockvm::app::app_icon_path());
+  if (!icon) return;
+  std::vector<unsigned char> rgba(icon->argb32_be.size());
+  for (size_t i = 0; i < icon->argb32_be.size(); i += 4) {
+    rgba[i] = icon->argb32_be[i + 1];
+    rgba[i + 1] = icon->argb32_be[i + 2];
+    rgba[i + 2] = icon->argb32_be[i + 3];
+    rgba[i + 3] = icon->argb32_be[i];
+  }
+  GLFWimage glfw_icon{icon->width, icon->height, rgba.data()};
+  glfwSetWindowIcon(window, 1, &glfw_icon);
+}
+#endif
 
 #ifdef _WIN32
 WNDPROC g_original_wndproc = nullptr;
@@ -115,6 +133,10 @@ int main() {
   }
   glfwMakeContextCurrent(window);
   glfwSwapInterval(1);
+
+#ifndef _WIN32
+  set_window_icon(window);
+#endif
 
 #ifdef _WIN32
   install_raw_input(window);

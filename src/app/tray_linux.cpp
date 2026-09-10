@@ -10,6 +10,7 @@
 #include <string>
 
 #include "ico_decode.h"
+#include "icon_path.h"
 #include "quit.h"
 
 // StatusNotifierItem (SNI) is the Linux desktop-tray protocol KDE/most
@@ -31,8 +32,6 @@ namespace {
 
 constexpr const char* kObjectPath = "/StatusNotifierItem";
 constexpr const char* kInterface = "org.kde.StatusNotifierItem";
-constexpr const char* kIconPath = "res/icons/NoCapKVM.ico";  // relative to the process's cwd
-
 DBusConnection* g_conn = nullptr;
 GLFWwindow* g_window = nullptr;
 std::optional<DecodedIcon> g_icon;
@@ -240,7 +239,7 @@ DBusObjectPathVTable g_vtable = {nullptr, message_handler, nullptr, nullptr, nul
 
 void install_tray(GLFWwindow* window) {
   g_window = window;
-  g_icon = load_ico_as_argb32(kIconPath);
+  g_icon = load_ico_as_argb32(app_icon_path());
 
   DBusError err;
   dbus_error_init(&err);

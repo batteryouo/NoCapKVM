@@ -38,9 +38,9 @@ if(WIN32)
   add_executable(nockvm_app WIN32 ${NOCKVM_APP_COMMON_SOURCES} tray.cpp app.rc)
 else()
   # tray_linux.cpp implements the same tray.h API as a StatusNotifierItem
-  # D-Bus service; ico_decode.cpp reads res/icons/NoCapKVM.ico for its
+  # D-Bus service; ico_decode.cpp reads the installed icon for its
   # IconPixmap property (same source image the Windows .rc embeds).
-  add_executable(nockvm_app ${NOCKVM_APP_COMMON_SOURCES} tray_linux.cpp ico_decode.cpp)
+  add_executable(nockvm_app ${NOCKVM_APP_COMMON_SOURCES} tray_linux.cpp ico_decode.cpp icon_path.cpp)
 endif()
 target_include_directories(nockvm_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(nockvm_app PRIVATE nockvm_common nockvm_discovery nockvm_topology nockvm_input nockvm_audio nockvm_clipboard nockvm_telemetry imgui glfw)
@@ -60,4 +60,16 @@ else()
   # include dir PRIVATE to themselves, so it doesn't propagate here.
   find_package(X11 REQUIRED)
   target_include_directories(nockvm_app PRIVATE ${X11_INCLUDE_DIR})
+
+  include(GNUInstallDirs)
+  set(NOCKVM_ICON_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../../res/icons/NoCapKVM.ico")
+  set(NOCKVM_DESKTOP_ICON_PATH "${CMAKE_INSTALL_FULL_DATADIR}/nockvm/NoCapKVM.ico")
+  target_compile_definitions(nockvm_app PRIVATE NOCKVM_INSTALLED_ICON_PATH="${NOCKVM_DESKTOP_ICON_PATH}")
+  configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../res/linux/nockvm.desktop.in"
+                 "${CMAKE_CURRENT_BINARY_DIR}/nockvm.desktop" @ONLY)
+  add_custom_command(TARGET nockvm_app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${NOCKVM_ICON_SOURCE}" "$<TARGET_FILE_DIR:nockvm_app>/NoCapKVM.ico")
+  install(TARGETS nockvm_app RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  install(FILES "${NOCKVM_ICON_SOURCE}" DESTINATION "${CMAKE_INSTALL_DATADIR}/nockvm")
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/nockvm.desktop" DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
 endif()

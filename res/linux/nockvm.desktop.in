@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=NoCapKVM
+Comment=Share a keyboard and mouse across trusted LAN computers
+Exec=nockvm_app
+Icon=@NOCKVM_DESKTOP_ICON_PATH@
+Terminal=false
+Categories=Utility;
