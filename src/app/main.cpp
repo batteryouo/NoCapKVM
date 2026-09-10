@@ -26,6 +26,7 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 #include <windows.h>
+#include "app_resource.h"
 #else
 #include <X11/Xlib.h>
 #include "ico_decode.h"
@@ -60,6 +61,27 @@ void set_window_icon(GLFWwindow* window) {
 
 #ifdef _WIN32
 WNDPROC g_original_wndproc = nullptr;
+HICON g_large_window_icon = nullptr;
+HICON g_small_window_icon = nullptr;
+
+void set_window_icon(GLFWwindow* window) {
+  const HINSTANCE instance = GetModuleHandleW(nullptr);
+  const auto resource = MAKEINTRESOURCEW(NOCKVM_APP_ICON_RESOURCE_ID);
+  g_large_window_icon = static_cast<HICON>(LoadImageW(instance, resource, IMAGE_ICON, GetSystemMetrics(SM_CXICON),
+                                                       GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR));
+  g_small_window_icon = static_cast<HICON>(LoadImageW(instance, resource, IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
+                                                       GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
+  const HWND hwnd = glfwGetWin32Window(window);
+  if (g_large_window_icon) SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(g_large_window_icon));
+  if (g_small_window_icon) SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(g_small_window_icon));
+}
+
+void destroy_window_icons() {
+  if (g_large_window_icon) DestroyIcon(g_large_window_icon);
+  if (g_small_window_icon) DestroyIcon(g_small_window_icon);
+  g_large_window_icon = nullptr;
+  g_small_window_icon = nullptr;
+}
 
 // Raw Input supplies unconstrained relative deltas while the input hook suppresses events.
 LRESULT CALLBACK raw_input_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -134,9 +156,7 @@ int main() {
   glfwMakeContextCurrent(window);
   glfwSwapInterval(1);
 
-#ifndef _WIN32
   set_window_icon(window);
-#endif
 
 #ifdef _WIN32
   install_raw_input(window);
@@ -231,6 +251,9 @@ int main() {
 
   glfwDestroyWindow(window);
   log_step("glfwDestroyWindow");
+#ifdef _WIN32
+  destroy_window_icons();
+#endif
   glfwTerminate();
   log_step("glfwTerminate");
   return 0;

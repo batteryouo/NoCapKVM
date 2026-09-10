@@ -8,6 +8,7 @@
 
 #include <shellapi.h>
 
+#include "app_resource.h"
 #include "quit.h"
 
 namespace nockvm::app {
@@ -49,9 +50,7 @@ void install_tray(GLFWwindow* window) {
   g_nid.uID = 1;
   g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
   g_nid.uCallbackMessage = kTrayCallbackMessage;
-  // Resource ID 101, embedded from res/icons/NoCapKVM.ico via app.rc -- also
-  // doubles as the .exe's own Explorer/taskbar icon.
-  g_nid.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101));
+  g_nid.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(NOCKVM_APP_ICON_RESOURCE_ID));
   lstrcpynW(g_nid.szTip, L"NoCapKVM", ARRAYSIZE(g_nid.szTip));
   Shell_NotifyIconW(NIM_ADD, &g_nid);
 }
