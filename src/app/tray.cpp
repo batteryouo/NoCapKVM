@@ -16,7 +16,7 @@ namespace nockvm::app {
 namespace {
 
 constexpr UINT kTrayCallbackMessage = WM_APP + 1;
-constexpr UINT_PTR kExitMenuCommand = 1;
+constexpr UINT_PTR kQuitMenuCommand = 1;
 
 NOTIFYICONDATAW g_nid{};
 GLFWwindow* g_window = nullptr;
@@ -29,7 +29,7 @@ void restore_window() {
 
 void show_context_menu(HWND hwnd) {
   HMENU menu = CreatePopupMenu();
-  AppendMenuW(menu, MF_STRING, kExitMenuCommand, L"Exit");
+  AppendMenuW(menu, MF_STRING, kQuitMenuCommand, L"Quit");
   POINT pt;
   GetCursorPos(&pt);
   // Without this the popup can fail to dismiss itself on an outside click --
@@ -76,7 +76,7 @@ bool tray_handle_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     }
     return true;
   }
-  if (msg == WM_COMMAND && LOWORD(wparam) == kExitMenuCommand) {
+  if (msg == WM_COMMAND && LOWORD(wparam) == kQuitMenuCommand) {
     request_quit();
     return true;
   }

@@ -10,7 +10,7 @@ namespace nockvm::app {
 
 // Installs the tray icon for `window`. Left-click/double-click restores the
 // window (glfwShowWindow + focus). Right-click: Windows opens a context
-// menu with Exit; Linux exposes the same action through its
+// menu with Quit; Linux exposes the same action through its
 // StatusNotifierItem menu. Call once, after the window exists.
 void install_tray(GLFWwindow* window);
 void uninstall_tray();
@@ -25,7 +25,7 @@ void pump_tray();
 
 #ifdef _WIN32
 // Forwards every message the app's window subclass sees; handles the tray
-// icon's callback message and its Exit menu command (which calls
+// icon's callback message and its Quit menu command (which calls
 // request_quit(), see quit.h). Caller should still pass msg on to
 // CallWindowProc/DefWindowProc regardless of the result.
 bool tray_handle_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
