@@ -6,8 +6,10 @@
 
 #include <GLFW/glfw3.h>
 
+#include <algorithm>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "ico_decode.h"
 #include "icon_path.h"
@@ -16,11 +18,8 @@
 // StatusNotifierItem (SNI) is the Linux desktop-tray protocol KDE/most
 // modern panels implement: a D-Bus service exposing a small fixed set of
 // properties (icon, title, status) plus Activate()/ContextMenu() methods
-// the panel calls on left/right click. Deliberately NOT implementing
-// com.canonical.dbusmenu here -- that's a real dropdown-menu tree over
-// D-Bus and would be a much larger surface for no functional gain here.
-// Instead, right-click's ContextMenu() just quits directly (see quit.h),
-// matching the two plain actions this app actually needs.
+// the panel calls on left/right click. The ContextMenu property points to a
+// com.canonical.dbusmenu tree, which currently contains only Quit.
 //
 // Everything below runs off one non-blocking poll per frame (pump_tray(),
 // called from main.cpp's loop) rather than a background event-loop thread
@@ -32,6 +31,11 @@ namespace {
 
 constexpr const char* kObjectPath = "/StatusNotifierItem";
 constexpr const char* kInterface = "org.kde.StatusNotifierItem";
+constexpr const char* kMenuObjectPath = "/NoCapKVM/Menu";
+constexpr const char* kMenuInterface = "com.canonical.dbusmenu";
+constexpr int32_t kMenuRootId = 0;
+constexpr int32_t kQuitMenuItemId = 1;
+constexpr uint32_t kMenuRevision = 1;
 DBusConnection* g_conn = nullptr;
 GLFWwindow* g_window = nullptr;
 std::optional<DecodedIcon> g_icon;
@@ -71,6 +75,7 @@ const char* kIntrospectionXml =
     "    <property name=\"Status\" type=\"s\" access=\"read\"/>\n"
     "    <property name=\"IconName\" type=\"s\" access=\"read\"/>\n"
     "    <property name=\"IconPixmap\" type=\"a(iiay)\" access=\"read\"/>\n"
+    "    <property name=\"Menu\" type=\"o\" access=\"read\"/>\n"
     "    <property name=\"ItemIsMenu\" type=\"b\" access=\"read\"/>\n"
     "    <property name=\"ToolTip\" type=\"(sa(iiay)ss)\" access=\"read\"/>\n"
     "  </interface>\n"
@@ -110,6 +115,13 @@ void append_variant_bool(DBusMessageIter* iter, bool value) {
   dbus_message_iter_close_container(iter, &variant_iter);
 }
 
+void append_variant_object_path(DBusMessageIter* iter, const char* value) {
+  DBusMessageIter variant_iter;
+  dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT, "o", &variant_iter);
+  dbus_message_iter_append_basic(&variant_iter, DBUS_TYPE_OBJECT_PATH, &value);
+  dbus_message_iter_close_container(iter, &variant_iter);
+}
+
 void append_variant_icon_pixmap(DBusMessageIter* iter) {
   DBusMessageIter variant_iter;
   dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT, "a(iiay)", &variant_iter);
@@ -133,7 +145,7 @@ void append_variant_tooltip(DBusMessageIter* iter) {
 }
 
 constexpr const char* kPropertyNames[] = {"Category", "Id",         "Title",      "Status",
-                                           "IconName", "IconPixmap", "ItemIsMenu", "ToolTip"};
+                                           "IconName", "IconPixmap", "Menu",        "ItemIsMenu", "ToolTip"};
 
 bool append_property_variant(DBusMessageIter* iter, const std::string& name) {
   if (name == "Category") { append_variant_string(iter, "ApplicationStatus"); return true; }
@@ -144,9 +156,69 @@ bool append_property_variant(DBusMessageIter* iter, const std::string& name) {
   // .ico file was missing or only had PNG-compressed frames).
   if (name == "IconName") { append_variant_string(iter, g_icon ? "" : "utilities-terminal"); return true; }
   if (name == "IconPixmap") { append_variant_icon_pixmap(iter); return true; }
+  if (name == "Menu") { append_variant_object_path(iter, kMenuObjectPath); return true; }
   if (name == "ItemIsMenu") { append_variant_bool(iter, false); return true; }
   if (name == "ToolTip") { append_variant_tooltip(iter); return true; }
   return false;
+}
+
+bool wants_menu_property(const std::vector<std::string>& names, const char* name) {
+  return names.empty() || std::find(names.begin(), names.end(), name) != names.end();
+}
+
+void append_menu_properties(DBusMessageIter* iter, int32_t item_id, const std::vector<std::string>& names) {
+  DBusMessageIter properties_iter;
+  dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "{sv}", &properties_iter);
+  auto append_property = [&](const char* name, auto append_value) {
+    if (!wants_menu_property(names, name)) return;
+    DBusMessageIter entry_iter;
+    dbus_message_iter_open_container(&properties_iter, DBUS_TYPE_DICT_ENTRY, nullptr, &entry_iter);
+    dbus_message_iter_append_basic(&entry_iter, DBUS_TYPE_STRING, &name);
+    append_value(&entry_iter);
+    dbus_message_iter_close_container(&properties_iter, &entry_iter);
+  };
+  if (item_id == kMenuRootId) {
+    append_property("children-display", [](DBusMessageIter* value) { append_variant_string(value, "submenu"); });
+  } else if (item_id == kQuitMenuItemId) {
+    append_property("label", [](DBusMessageIter* value) { append_variant_string(value, "Quit"); });
+    append_property("enabled", [](DBusMessageIter* value) { append_variant_bool(value, true); });
+    append_property("visible", [](DBusMessageIter* value) { append_variant_bool(value, true); });
+  }
+  dbus_message_iter_close_container(iter, &properties_iter);
+}
+
+void append_menu_layout(DBusMessageIter* iter, int32_t item_id, const std::vector<std::string>& names, bool include_children) {
+  DBusMessageIter layout_iter;
+  dbus_message_iter_open_container(iter, DBUS_TYPE_STRUCT, nullptr, &layout_iter);
+  dbus_message_iter_append_basic(&layout_iter, DBUS_TYPE_INT32, &item_id);
+  append_menu_properties(&layout_iter, item_id, names);
+  DBusMessageIter children_iter;
+  dbus_message_iter_open_container(&layout_iter, DBUS_TYPE_ARRAY, "v", &children_iter);
+  if (include_children && item_id == kMenuRootId) {
+    DBusMessageIter child_variant_iter;
+    dbus_message_iter_open_container(&children_iter, DBUS_TYPE_VARIANT, "(ia{sv}av)", &child_variant_iter);
+    append_menu_layout(&child_variant_iter, kQuitMenuItemId, names, false);
+    dbus_message_iter_close_container(&children_iter, &child_variant_iter);
+  }
+  dbus_message_iter_close_container(&layout_iter, &children_iter);
+  dbus_message_iter_close_container(iter, &layout_iter);
+}
+
+bool read_menu_properties(DBusMessage* msg, int32_t* item_id, std::vector<std::string>* names) {
+  DBusMessageIter iter;
+  if (!dbus_message_iter_init(msg, &iter) || dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_INT32) return false;
+  dbus_message_iter_get_basic(&iter, item_id);
+  if (!dbus_message_iter_next(&iter) || dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_INT32) return false;
+  if (!dbus_message_iter_next(&iter) || dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY) return false;
+  DBusMessageIter names_iter;
+  dbus_message_iter_recurse(&iter, &names_iter);
+  while (dbus_message_iter_get_arg_type(&names_iter) == DBUS_TYPE_STRING) {
+    const char* name = nullptr;
+    dbus_message_iter_get_basic(&names_iter, &name);
+    names->emplace_back(name);
+    dbus_message_iter_next(&names_iter);
+  }
+  return true;
 }
 
 void send_empty_reply(DBusConnection* conn, DBusMessage* msg) {
@@ -201,6 +273,47 @@ void handle_get_all(DBusConnection* conn, DBusMessage* msg) {
   dbus_message_unref(reply);
 }
 
+void handle_menu_get_layout(DBusConnection* conn, DBusMessage* msg) {
+  int32_t item_id = 0;
+  std::vector<std::string> properties;
+  if (!read_menu_properties(msg, &item_id, &properties) ||
+      (item_id != kMenuRootId && item_id != kQuitMenuItemId)) {
+    DBusMessage* reply = dbus_message_new_error(msg, "com.canonical.dbusmenu.Error.UnknownId", "unknown menu item");
+    dbus_connection_send(conn, reply, nullptr);
+    dbus_message_unref(reply);
+    return;
+  }
+  DBusMessage* reply = dbus_message_new_method_return(msg);
+  DBusMessageIter iter;
+  dbus_message_iter_init_append(reply, &iter);
+  dbus_message_iter_append_basic(&iter, DBUS_TYPE_UINT32, &kMenuRevision);
+  append_menu_layout(&iter, item_id, properties, item_id == kMenuRootId);
+  dbus_connection_send(conn, reply, nullptr);
+  dbus_message_unref(reply);
+}
+
+void handle_menu_event(DBusConnection* conn, DBusMessage* msg) {
+  DBusMessageIter iter;
+  if (!dbus_message_iter_init(msg, &iter) || dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_INT32) return;
+  int32_t item_id = 0;
+  dbus_message_iter_get_basic(&iter, &item_id);
+  if (!dbus_message_iter_next(&iter) || dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_STRING) return;
+  const char* event_id = nullptr;
+  dbus_message_iter_get_basic(&iter, &event_id);
+  if (item_id == kQuitMenuItemId && std::string(event_id) == "clicked") request_quit();
+  send_empty_reply(conn, msg);
+}
+
+void handle_menu_about_to_show(DBusConnection* conn, DBusMessage* msg) {
+  DBusMessage* reply = dbus_message_new_method_return(msg);
+  DBusMessageIter iter;
+  dbus_message_iter_init_append(reply, &iter);
+  dbus_bool_t changed = FALSE;
+  dbus_message_iter_append_basic(&iter, DBUS_TYPE_BOOLEAN, &changed);
+  dbus_connection_send(conn, reply, nullptr);
+  dbus_message_unref(reply);
+}
+
 DBusHandlerResult message_handler(DBusConnection* conn, DBusMessage* msg, void*) {
   if (dbus_message_is_method_call(msg, "org.freedesktop.DBus.Introspectable", "Introspect")) {
     handle_introspect(conn, msg);
@@ -221,8 +334,6 @@ DBusHandlerResult message_handler(DBusConnection* conn, DBusMessage* msg, void*)
     return DBUS_HANDLER_RESULT_HANDLED;
   }
   if (dbus_message_is_method_call(msg, kInterface, "ContextMenu")) {
-    // No dropdown menu (see file comment) -- right-click just quits.
-    request_quit();
     send_empty_reply(conn, msg);
     return DBUS_HANDLER_RESULT_HANDLED;
   }
@@ -234,6 +345,24 @@ DBusHandlerResult message_handler(DBusConnection* conn, DBusMessage* msg, void*)
 }
 
 DBusObjectPathVTable g_vtable = {nullptr, message_handler, nullptr, nullptr, nullptr, nullptr};
+
+DBusHandlerResult menu_message_handler(DBusConnection* conn, DBusMessage* msg, void*) {
+  if (dbus_message_is_method_call(msg, kMenuInterface, "GetLayout")) {
+    handle_menu_get_layout(conn, msg);
+    return DBUS_HANDLER_RESULT_HANDLED;
+  }
+  if (dbus_message_is_method_call(msg, kMenuInterface, "Event")) {
+    handle_menu_event(conn, msg);
+    return DBUS_HANDLER_RESULT_HANDLED;
+  }
+  if (dbus_message_is_method_call(msg, kMenuInterface, "AboutToShow")) {
+    handle_menu_about_to_show(conn, msg);
+    return DBUS_HANDLER_RESULT_HANDLED;
+  }
+  return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+}
+
+DBusObjectPathVTable g_menu_vtable = {nullptr, menu_message_handler, nullptr, nullptr, nullptr, nullptr};
 
 }  // namespace
 
@@ -250,6 +379,7 @@ void install_tray(GLFWwindow* window) {
   }
   dbus_connection_set_exit_on_disconnect(g_conn, FALSE);
   dbus_connection_register_object_path(g_conn, kObjectPath, &g_vtable, nullptr);
+  dbus_connection_register_object_path(g_conn, kMenuObjectPath, &g_menu_vtable, nullptr);
 
   // Best-effort registration with the panel's watcher: if it isn't running
   // yet (race at login) or absent entirely (no SNI-capable panel), the
@@ -267,6 +397,7 @@ void install_tray(GLFWwindow* window) {
 
 void uninstall_tray() {
   if (!g_conn) return;
+  dbus_connection_unregister_object_path(g_conn, kMenuObjectPath);
   dbus_connection_unregister_object_path(g_conn, kObjectPath);
   dbus_connection_close(g_conn);
   dbus_connection_unref(g_conn);

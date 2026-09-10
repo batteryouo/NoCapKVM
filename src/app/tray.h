@@ -10,9 +10,8 @@ namespace nockvm::app {
 
 // Installs the tray icon for `window`. Left-click/double-click restores the
 // window (glfwShowWindow + focus). Right-click: Windows opens a context
-// menu with Exit; Linux's StatusNotifierItem has no menu and just quits
-// directly on right-click (its ContextMenu callback). Call once, after the
-// window exists.
+// menu with Exit; Linux exposes the same action through its
+// StatusNotifierItem menu. Call once, after the window exists.
 void install_tray(GLFWwindow* window);
 void uninstall_tray();
 
