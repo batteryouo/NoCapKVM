@@ -181,20 +181,18 @@ void draw_connection_quality(AppState& state, const discovery::ConnectionInfo& i
   }
 
   if (state.role == discovery::Role::Master) {
-    // "Since playback started" rather than "this connection": both
-    // counters live on the current AudioPlayback/JitterBuffer instance,
-    // which is reconstructed (and so restarts at 0) on a mid-connection
-    // audio-quality change too, not just a fresh TCP connection -- see
-    // audio_underruns_baseline's comment in app_state.h.
-    const uint64_t misses = state.audio_playback ? state.audio_playback->playout_misses() : 0;
-    const uint64_t played = state.audio_playback ? state.audio_playback->frames_played() : 0;
-    const uint64_t attempts = misses + played;
-    if (attempts > 0) {
-      ImGui::Text("Audio playout misses (since playback started): %llu / %llu (%.1f%%)",
-                  static_cast<unsigned long long>(misses), static_cast<unsigned long long>(attempts),
-                  100.0 * static_cast<double>(misses) / static_cast<double>(attempts));
+    // Rolling last-60-seconds window rather than a lifetime total, so a
+    // long-running connection's early trouble doesn't keep dragging down a
+    // rate that's since recovered (or vice versa) -- see AudioLossWindow.
+    const AudioLossWindow::Reading loss = state.audio_loss_window.reading();
+    if (!loss.ready) {
+      ImGui::TextUnformatted("Audio playout misses (last 60 s): measuring...");
+    } else if (loss.attempts > 0) {
+      ImGui::Text("Audio playout misses (last 60 s): %llu / %llu (%.1f%%)",
+                  static_cast<unsigned long long>(loss.misses), static_cast<unsigned long long>(loss.attempts),
+                  100.0 * static_cast<double>(loss.misses) / static_cast<double>(loss.attempts));
     } else {
-      ImGui::Text("Audio playout misses (since playback started): %llu", static_cast<unsigned long long>(misses));
+      ImGui::Text("Audio playout misses (last 60 s): %llu", static_cast<unsigned long long>(loss.misses));
     }
     ImGui::TextUnformatted(
         "(Playback-side estimate: may reflect network loss, late arrival, or a receive stall -- not exact packet loss.)");

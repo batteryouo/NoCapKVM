@@ -18,6 +18,12 @@
 namespace nockvm::app {
 namespace {
 
+// How often pump_master() samples the cumulative playout-miss/frames-played
+// counters into audio_loss_window -- independent of the UI's own frame
+// rate, matching the "once per second" cadence the rolling window is
+// documented against.
+constexpr auto kAudioLossSampleInterval = std::chrono::seconds(1);
+
 std::string format_desc(const audio::AudioFormat& format) {
   return std::to_string(format.sample_rate) + "hz/" + std::to_string(format.bit_depth) + "bit";
 }
@@ -26,6 +32,7 @@ void stop_master_audio(AppState& state) {
   if (state.audio_playback) state.audio_playback->stop();
   state.audio_playback.reset();
   state.audio_recv_channel.reset();
+  state.audio_loss_window.reset();
   telemetry::log_event("audio.master_stopped", "playback stopped");
 }
 
@@ -105,6 +112,8 @@ void pump_master(AppState& state) {
     state.audio_playback = std::make_unique<audio::AudioPlayback>();
     ++state.audio_playback_generation;
     state.audio_underruns_baseline = telemetry::counters().audio_underruns.load(std::memory_order_relaxed);
+    state.audio_loss_window.reset();
+    state.audio_loss_window_last_sample_at = {};
     if (!state.audio_playback->start(peer_format)) {
       // Drop it entirely rather than leaving a playback object whose device
       // never opened: its jitter buffer would have no consumer at all, so
@@ -128,6 +137,12 @@ void pump_master(AppState& state) {
   }
 
   if (!state.audio_playback) return;  // device never opened -- let the socket drop packets instead of buffering them
+
+  const auto now = std::chrono::steady_clock::now();
+  if (now - state.audio_loss_window_last_sample_at >= kAudioLossSampleInterval) {
+    state.audio_loss_window.record(now, state.audio_playback->playout_misses(), state.audio_playback->frames_played());
+    state.audio_loss_window_last_sample_at = now;
+  }
 
   uint32_t seq = 0;
   std::vector<uint8_t> data;

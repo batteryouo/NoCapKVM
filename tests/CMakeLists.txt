@@ -39,3 +39,9 @@ add_test(NAME test_retry_backoff COMMAND test_retry_backoff)
 add_executable(test_reconnect_tracker test_reconnect_tracker.cpp)
 target_include_directories(test_reconnect_tracker PRIVATE ${CMAKE_SOURCE_DIR}/src/app)
 add_test(NAME test_reconnect_tracker COMMAND test_reconnect_tracker)
+
+# audio_loss_window.h is the same kind of header-only, dependency-free
+# policy class as retry_backoff.h -- see its comment above.
+add_executable(test_audio_loss_window test_audio_loss_window.cpp)
+target_include_directories(test_audio_loss_window PRIVATE ${CMAKE_SOURCE_DIR}/src/app)
+add_test(NAME test_audio_loss_window COMMAND test_audio_loss_window)

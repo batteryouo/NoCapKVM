@@ -18,6 +18,7 @@
 #include "nockvm/display/monitor_info.h"
 #include "nockvm/input/hook.h"
 #include "nockvm/topology/arrangement.h"
+#include "audio_loss_window.h"
 #include "retry_backoff.h"
 
 namespace nockvm::app {
@@ -77,6 +78,12 @@ struct AppState {
   // not just a fresh TCP connection -- which is why the UI labels it
   // "since playback started" rather than "this connection".
   uint64_t audio_underruns_baseline = 0;
+  // Master only: rolling ~60-second window over playout_misses()/
+  // frames_played(), sampled once per second in audio_pump.cpp's
+  // pump_master() -- see AudioLossWindow's own comment. Reset alongside
+  // audio_underruns_baseline above, for the same reason.
+  AudioLossWindow audio_loss_window;
+  std::chrono::steady_clock::time_point audio_loss_window_last_sample_at{};
   std::unique_ptr<audio::AudioChannel> audio_recv_channel;   // Master only, wraps tcp_server's audio_socket()
   audio::AudioFormat audio_master_active_format;  // Master only: what audio_playback is currently configured for
   std::unique_ptr<audio::AudioCapture> audio_capture;        // Slave only
