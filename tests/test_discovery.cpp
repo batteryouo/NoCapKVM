@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include "nockvm/discovery/monitor_protocol.h"
+#include "nockvm/discovery/ping_protocol.h"
 #include "nockvm/discovery/protocol.h"
 #include "nockvm/discovery/user_settings.h"
 
@@ -207,6 +208,35 @@ int main() {
     const std::vector<uint8_t> encoded = encode_monitor_list({m});
     std::vector<MonitorInfo> decoded;
     assert(!decode_monitor_list(encoded.data(), encoded.size() - 1, decoded));
+  }
+
+  // Ping/pong round-trip: the same wire shape serves both message types --
+  // a decoded seq matches whatever was encoded, including edge values.
+  {
+    const std::vector<uint8_t> encoded = encode_ping_seq(0);
+    uint32_t seq = 42;
+    assert(decode_ping_seq(encoded.data(), encoded.size(), seq));
+    assert(seq == 0);
+  }
+  {
+    const std::vector<uint8_t> encoded = encode_ping_seq(0xDEADBEEF);
+    uint32_t seq = 0;
+    assert(decode_ping_seq(encoded.data(), encoded.size(), seq));
+    assert(seq == 0xDEADBEEF);
+  }
+  {
+    const std::vector<uint8_t> encoded = encode_ping_seq(UINT32_MAX);
+    uint32_t seq = 0;
+    assert(decode_ping_seq(encoded.data(), encoded.size(), seq));
+    assert(seq == UINT32_MAX);
+    assert(encoded.size() == 4);
+  }
+
+  // Rejection: truncated ping/pong payload
+  {
+    const std::vector<uint8_t> encoded = encode_ping_seq(123);
+    uint32_t seq = 0;
+    assert(!decode_ping_seq(encoded.data(), encoded.size() - 1, seq));
   }
 
   return 0;

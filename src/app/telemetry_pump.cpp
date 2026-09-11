@@ -1,6 +1,7 @@
 #include "telemetry_pump.h"
 #include "nockvm/discovery/connection_types.h"
 #include "nockvm/telemetry/telemetry.h"
+#include "reconnect_tracker.h"
 
 namespace nockvm::app {
 namespace {
@@ -31,6 +32,9 @@ void pump_telemetry(AppState& state, double frame_time_ms, bool window_visible) 
   } else if (state.tcp_client) {
     conn_state = state.tcp_client->status().state;
   }
+
+  track_reconnect(state.telemetry_last_connection_state == discovery::ConnectionState::Connected,
+                   conn_state == discovery::ConnectionState::Connected, state.ever_connected, state.reconnect_count);
 
   if (conn_state != state.telemetry_last_connection_state) {
     if (conn_state == discovery::ConnectionState::Connected) {

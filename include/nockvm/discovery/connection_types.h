@@ -48,6 +48,12 @@ struct ConnectionInfo {
   // per-device suppression -- TcpClient itself doesn't track anything
   // beyond a single attempt's lifetime.
   bool go_away_received = false;
+
+  // Round-trip time in milliseconds from the most recent successful
+  // ping/pong exchange on this connection (see ping_protocol.h), measured
+  // with a monotonic clock. -1 means no pong has been received yet this
+  // connection -- the UI shows "measuring..." for that case.
+  int64_t last_rtt_ms = -1;
 };
 
 }  // namespace nockvm::discovery

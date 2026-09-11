@@ -68,6 +68,15 @@ struct AppState {
   // so telemetry can tell a fresh instance's counters (which restart at 0)
   // apart from the previous instance's.
   uint64_t audio_playback_generation = 0;
+  // Master only: snapshot of telemetry::counters().audio_underruns taken
+  // whenever audio_playback is (re)constructed, so the Connection Quality
+  // panel can show underruns scoped to the currently active playback
+  // instance instead of the whole process lifetime (that counter itself is
+  // process-wide and never resets). Note this resets on every
+  // (re)construction -- including a mid-connection audio-quality change,
+  // not just a fresh TCP connection -- which is why the UI labels it
+  // "since playback started" rather than "this connection".
+  uint64_t audio_underruns_baseline = 0;
   std::unique_ptr<audio::AudioChannel> audio_recv_channel;   // Master only, wraps tcp_server's audio_socket()
   audio::AudioFormat audio_master_active_format;  // Master only: what audio_playback is currently configured for
   std::unique_ptr<audio::AudioCapture> audio_capture;        // Slave only
@@ -111,6 +120,13 @@ struct AppState {
   // actual counters live in nockvm::telemetry::counters(), not here.
   bool telemetry_last_window_visible = true;
   discovery::ConnectionState telemetry_last_connection_state = discovery::ConnectionState::Idle;
+
+  // Connection Quality panel state (see reconnect_tracker.h): whether this
+  // process has completed at least one successful connection yet, and how
+  // many times it has reached Connected again since. Both persist across
+  // disconnects for the life of the process, reset only on app restart.
+  bool ever_connected = false;
+  uint32_t reconnect_count = 0;
 };
 
 }  // namespace nockvm::app

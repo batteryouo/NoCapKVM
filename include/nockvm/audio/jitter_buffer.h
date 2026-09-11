@@ -42,6 +42,19 @@ public:
   // it's measured against without duplicating the value.
   size_t capacity() const { return max_depth_; }
 
+  // Cumulative count of pop() calls where the expected next sequence
+  // number hadn't arrived in time -- see pop(). This is the basis for the
+  // UI's "audio playout misses" metric: an estimate, not exact network
+  // packet loss, since it can't distinguish "lost in transit" from
+  // "arrived after its playback slot had already passed". Atomic and
+  // I/O-free: safe to poll from another thread without synchronizing with
+  // push()/pop().
+  uint64_t playout_misses() const { return playout_misses_.load(std::memory_order_relaxed); }
+
+  // Cumulative count of pop() calls that successfully returned a frame --
+  // the denominator playout_misses() is naturally measured against.
+  uint64_t frames_played() const { return frames_played_.load(std::memory_order_relaxed); }
+
   // Cumulative count of "at cap" episodes since construction, debounced by
   // a recovery threshold (see recovery_threshold_) so a sustained overflow
   // counts as one episode rather than one per dropped packet. Atomic and
@@ -83,6 +96,8 @@ private:
   uint32_t next_seq_ = 0;
   std::atomic<bool> at_cap_{false};
   std::atomic<uint64_t> cap_episodes_{0};
+  std::atomic<uint64_t> playout_misses_{0};
+  std::atomic<uint64_t> frames_played_{0};
   // Once playback's own next_seq_ races ahead of what the sender has
   // actually gotten to -- inevitable after any sufficiently long stall
   // (a burst of loss, or just sender/receiver clock drift accumulating

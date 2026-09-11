@@ -102,10 +102,12 @@ std::optional<std::vector<uint8_t>> JitterBuffer::pop() {
       buffer_.clear();
       clear_at_cap_if_recovered();
     }
+    playout_misses_.fetch_add(1, std::memory_order_relaxed);
     return std::nullopt;
   }
 
   consecutive_misses_ = 0;
+  frames_played_.fetch_add(1, std::memory_order_relaxed);
   std::vector<uint8_t> frame = std::move(it->second);
   buffer_.erase(it);
   clear_at_cap_if_recovered();

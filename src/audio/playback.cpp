@@ -114,6 +114,8 @@ bool AudioPlayback::start(const AudioFormat& format) {
 size_t AudioPlayback::buffered_packets() const { return buffer_->depth(); }
 size_t AudioPlayback::buffer_capacity() const { return buffer_->capacity(); }
 uint64_t AudioPlayback::buffer_cap_episodes() const { return buffer_->cap_episodes(); }
+uint64_t AudioPlayback::playout_misses() const { return buffer_->playout_misses(); }
+uint64_t AudioPlayback::frames_played() const { return buffer_->frames_played(); }
 
 void AudioPlayback::stop() {
   if (!device_) return;

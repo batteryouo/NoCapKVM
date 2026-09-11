@@ -104,6 +104,7 @@ void pump_master(AppState& state) {
     if (state.audio_playback) state.audio_playback->stop();
     state.audio_playback = std::make_unique<audio::AudioPlayback>();
     ++state.audio_playback_generation;
+    state.audio_underruns_baseline = telemetry::counters().audio_underruns.load(std::memory_order_relaxed);
     if (!state.audio_playback->start(peer_format)) {
       // Drop it entirely rather than leaving a playback object whose device
       // never opened: its jitter buffer would have no consumer at all, so

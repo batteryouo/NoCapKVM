@@ -208,5 +208,36 @@ int main() {
     assert(buf.cap_episodes() == 2);
   }
 
+  // playout_misses() counts pop() calls where the expected sequence number
+  // hadn't arrived, but not the initial fill-up wait before playback starts.
+  {
+    JitterBuffer buf(2, 100);
+    assert(!buf.pop().has_value());  // still filling -- not a miss
+    assert(buf.playout_misses() == 0);
+
+    buf.push(0, {10});
+    buf.push(2, {30});  // seq 1 never arrives
+    assert(buf.pop().has_value());   // seq 0 plays
+    assert(buf.frames_played() == 1);
+    assert(!buf.pop().has_value());  // seq 1 missing -> counted as a miss
+    assert(buf.playout_misses() == 1);
+    const auto f2 = buf.pop();
+    assert(f2.has_value() && (*f2)[0] == 30);
+    assert(buf.frames_played() == 2);
+    assert(buf.playout_misses() == 1);
+  }
+
+  // A late/dropped packet (arrives after playback already moved past its
+  // sequence number) shows up as a playout miss once pop() reaches that
+  // sequence number, since the frame is simply absent at that point.
+  {
+    JitterBuffer buf(1, 100);
+    buf.push(0, {10});
+    assert(buf.pop().has_value());   // starts, plays seq 0, next_seq_ is now 1
+    buf.push(0, {200});              // too late, dropped by push()
+    assert(!buf.pop().has_value());  // seq 1 still never arrived -> miss
+    assert(buf.playout_misses() == 1);
+  }
+
   return 0;
 }

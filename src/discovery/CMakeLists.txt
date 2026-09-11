@@ -26,6 +26,7 @@ add_library(nockvm_discovery STATIC
   secure_channel.cpp
   monitor_protocol.cpp
   audio_port_protocol.cpp
+  ping_protocol.cpp
   user_settings.cpp
 )
 target_include_directories(nockvm_discovery PUBLIC ${CMAKE_SOURCE_DIR}/include)

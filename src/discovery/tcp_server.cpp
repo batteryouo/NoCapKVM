@@ -5,6 +5,7 @@
 #include "nockvm/discovery/monitor_protocol.h"
 #include "nockvm/discovery/noise_ik.h"
 #include "nockvm/discovery/pairing.h"
+#include "nockvm/discovery/ping_protocol.h"
 #include "nockvm/discovery/protocol.h"
 #include "nockvm/discovery/secure_channel.h"
 #include "nockvm/discovery/static_keys.h"
@@ -24,6 +25,12 @@ constexpr auto kHandshakeTimeout = std::chrono::seconds(3);
 // under any sane heartbeat_timeout so a handful of heartbeats can go
 // missing before the connection is actually declared dead.
 constexpr auto kHeartbeatInterval = std::chrono::milliseconds(1000);
+// How long an unanswered ping is allowed to stay in flight before it's
+// abandoned and a fresh one takes its place. Without this, a single lost
+// pong would permanently mismatch every later pong's seq against the
+// still-outstanding one, freezing the RTT reading forever instead of just
+// missing one sample.
+constexpr auto kPingProbeTimeout = std::chrono::milliseconds(5000);
 }  // namespace
 
 TcpServer::TcpServer(uint64_t own_device_id, KnownPeers& known_peers, std::chrono::milliseconds heartbeat_timeout)
@@ -284,6 +291,13 @@ void TcpServer::run() {
     // -- only Timeout means nothing arrived this poll.
     auto last_heard = std::chrono::steady_clock::now();
     auto last_heartbeat_sent = std::chrono::steady_clock::now();
+    // RTT-measurement state: one ping in flight at a time. A late pong for
+    // an already-superseded seq is ignored (see below) rather than misread
+    // against the newer ping's timestamp.
+    auto last_ping_sent = std::chrono::steady_clock::now();
+    uint32_t next_ping_seq = 0;
+    std::optional<uint32_t> ping_in_flight_seq;
+    std::chrono::steady_clock::time_point ping_sent_at;
     while (running_.load() && !disconnect_requested_.load()) {
       uint8_t msg_type;
       std::vector<uint8_t> payload;
@@ -308,6 +322,25 @@ void TcpServer::run() {
             status_.peer_audio_sample_rate = sample_rate;
             status_.peer_audio_bit_depth = bit_depth;
           }
+        } else if (msg_type == kMsgPing) {
+          uint32_t seq;
+          if (decode_ping_seq(payload.data(), payload.size(), seq)) {
+            const std::vector<uint8_t> pong_payload = encode_ping_seq(seq);
+            std::lock_guard<std::mutex> lock(send_mutex_);
+            channel.send(kMsgPong, pong_payload.data(), pong_payload.size());
+          }
+        } else if (msg_type == kMsgPong) {
+          uint32_t seq;
+          if (decode_ping_seq(payload.data(), payload.size(), seq) && ping_in_flight_seq && seq == *ping_in_flight_seq) {
+            const auto rtt_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - ping_sent_at)
+                    .count();
+            {
+              std::lock_guard<std::mutex> lock(status_mutex_);
+              status_.last_rtt_ms = rtt_ms;
+            }
+            ping_in_flight_seq.reset();  // answered -- clear so the next ping can go out
+          }
         } else if (msg_type == kMsgClipboardText || msg_type == kMsgClipboardImage) {
           // Only the latest matters -- if two arrive before the app layer
           // gets around to calling take_pending_clipboard(), overwriting
@@ -330,6 +363,25 @@ void TcpServer::run() {
         std::lock_guard<std::mutex> lock(send_mutex_);
         channel.send(kMsgHeartbeat, &no_payload, 0);
         last_heartbeat_sent = now;
+      }
+      // Abandon a probe nothing has answered in too long, so one lost pong
+      // doesn't stall the RTT reading forever (see kPingProbeTimeout).
+      if (ping_in_flight_seq && now - ping_sent_at >= kPingProbeTimeout) ping_in_flight_seq.reset();
+      // Reuses the heartbeat cadence -- once a second is plenty for a live
+      // RTT reading without adding noticeable extra traffic. Never sent
+      // while a probe is still outstanding, so a slow peer (RTT approaching
+      // or exceeding this interval) gets one probe in flight at a time
+      // instead of a new seq racing ahead of the reply to the previous one.
+      if (!ping_in_flight_seq && now - last_ping_sent >= kHeartbeatInterval) {
+        const std::vector<uint8_t> ping_payload = encode_ping_seq(next_ping_seq);
+        {
+          std::lock_guard<std::mutex> lock(send_mutex_);
+          channel.send(kMsgPing, ping_payload.data(), ping_payload.size());
+        }
+        ping_in_flight_seq = next_ping_seq;
+        ping_sent_at = now;
+        ++next_ping_seq;
+        last_ping_sent = now;
       }
     }
 

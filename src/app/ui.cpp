@@ -8,6 +8,7 @@
 #include "nockvm/discovery/identity.h"
 #include "nockvm/discovery/types.h"
 #include "nockvm/discovery/user_settings.h"
+#include "nockvm/telemetry/counters.h"
 #include "nockvm/topology/crossing.h"
 #include "quit.h"
 
@@ -160,6 +161,62 @@ void draw_monitor_table(const char* table_id, const std::vector<display::Monitor
   }
 }
 
+// Diagnostics meant to help distinguish *why* a connection feels bad --
+// network latency/instability (RTT), missing/late audio (playout misses),
+// playback starvation (underruns), backlog in the jitter buffer, and
+// reconnection history -- rather than just reporting that it is bad. Shown
+// on both Master and Slave whenever a peer is connected; the audio-related
+// rows only apply on Master, since playback (and therefore the jitter
+// buffer/underruns/playout-miss counters) lives there in this
+// single-direction-audio architecture.
+void draw_connection_quality(AppState& state, const discovery::ConnectionInfo& info) {
+  ImGui::Spacing();
+  ImGui::Separator();
+  ImGui::TextUnformatted("Connection quality:");
+
+  if (info.last_rtt_ms < 0) {
+    ImGui::TextUnformatted("Round-trip time: measuring...");
+  } else {
+    ImGui::Text("Round-trip time: %lld ms", static_cast<long long>(info.last_rtt_ms));
+  }
+
+  if (state.role == discovery::Role::Master) {
+    // "Since playback started" rather than "this connection": both
+    // counters live on the current AudioPlayback/JitterBuffer instance,
+    // which is reconstructed (and so restarts at 0) on a mid-connection
+    // audio-quality change too, not just a fresh TCP connection -- see
+    // audio_underruns_baseline's comment in app_state.h.
+    const uint64_t misses = state.audio_playback ? state.audio_playback->playout_misses() : 0;
+    const uint64_t played = state.audio_playback ? state.audio_playback->frames_played() : 0;
+    const uint64_t attempts = misses + played;
+    if (attempts > 0) {
+      ImGui::Text("Audio playout misses (since playback started): %llu / %llu (%.1f%%)",
+                  static_cast<unsigned long long>(misses), static_cast<unsigned long long>(attempts),
+                  100.0 * static_cast<double>(misses) / static_cast<double>(attempts));
+    } else {
+      ImGui::Text("Audio playout misses (since playback started): %llu", static_cast<unsigned long long>(misses));
+    }
+    ImGui::TextUnformatted(
+        "(Playback-side estimate: may reflect network loss, late arrival, or a receive stall -- not exact packet loss.)");
+
+    const uint64_t underruns_total = telemetry::counters().audio_underruns.load(std::memory_order_relaxed);
+    const uint64_t underruns = state.audio_playback && underruns_total >= state.audio_underruns_baseline
+                                    ? underruns_total - state.audio_underruns_baseline
+                                    : 0;
+    ImGui::Text("Audio underruns (since playback started): %llu", static_cast<unsigned long long>(underruns));
+
+    const size_t depth = state.audio_playback ? state.audio_playback->buffered_packets() : 0;
+    const size_t capacity = state.audio_playback ? state.audio_playback->buffer_capacity() : 0;
+    ImGui::Text("Jitter buffer: %zu / %zu packets", depth, capacity);
+  } else {
+    ImGui::TextUnformatted("Audio playout misses: not applicable (playback happens on the Master)");
+    ImGui::TextUnformatted("Audio underruns: not applicable (playback happens on the Master)");
+    ImGui::TextUnformatted("Jitter buffer: not applicable (playback happens on the Master)");
+  }
+
+  ImGui::Text("Reconnections this session: %u", state.reconnect_count);
+}
+
 void draw_connection_tab(AppState& state) {
   const discovery::Role wanted = state.role == discovery::Role::Master ? discovery::Role::Slave : discovery::Role::Master;
   const bool is_slave = state.role == discovery::Role::Slave;
@@ -250,6 +307,7 @@ void draw_connection_tab(AppState& state) {
       // again.
       ImGui::Text("Audio buffer: %zu packets   |   Memory: %.0f MiB",
                   state.audio_playback ? state.audio_playback->buffered_packets() : 0u, resident_mib());
+      draw_connection_quality(state, info);
       ImGui::Spacing();
       ImGui::TextUnformatted("Slave's displays:");
       draw_monitor_table("slave_monitors", info.peer_monitors);
@@ -272,6 +330,7 @@ void draw_connection_tab(AppState& state) {
         state.auto_connect_suppressed.insert(info.peer_device_id);
         state.tcp_client.reset();
       }
+      draw_connection_quality(state, info);
     } else {
       ImGui::TextUnformatted("Connection failed");
     }

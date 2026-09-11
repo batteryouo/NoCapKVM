@@ -32,6 +32,13 @@ public:
   size_t buffer_capacity() const;
   // See JitterBuffer::cap_episodes().
   uint64_t buffer_cap_episodes() const;
+  // Basis for the UI's "audio playout misses" metric -- see
+  // JitterBuffer::playout_misses(). An estimate: it can represent packet
+  // loss, late arrival, or a receive stall, not exact network loss.
+  uint64_t playout_misses() const;
+  // See JitterBuffer::frames_played() -- the denominator playout_misses()
+  // is naturally measured against.
+  uint64_t frames_played() const;
 
 private:
   void* device_ = nullptr;  // ma_device*, opaque here to keep miniaudio out of this header

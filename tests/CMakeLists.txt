@@ -33,3 +33,9 @@ add_test(NAME test_telemetry COMMAND test_telemetry)
 add_executable(test_retry_backoff test_retry_backoff.cpp)
 target_include_directories(test_retry_backoff PRIVATE ${CMAKE_SOURCE_DIR}/src/app)
 add_test(NAME test_retry_backoff COMMAND test_retry_backoff)
+
+# reconnect_tracker.h is the same kind of header-only, dependency-free
+# policy class as retry_backoff.h -- see its comment above.
+add_executable(test_reconnect_tracker test_reconnect_tracker.cpp)
+target_include_directories(test_reconnect_tracker PRIVATE ${CMAKE_SOURCE_DIR}/src/app)
+add_test(NAME test_reconnect_tracker COMMAND test_reconnect_tracker)
