@@ -1,12 +1,66 @@
 #include <cassert>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include "nockvm/discovery/monitor_protocol.h"
 #include "nockvm/discovery/protocol.h"
+#include "nockvm/discovery/user_settings.h"
 
 using namespace nockvm::discovery;
 using nockvm::display::MonitorInfo;
 
+namespace {
+
+void set_env(const char* name, const std::filesystem::path& value) {
+#ifdef _WIN32
+  _putenv_s(name, value.string().c_str());
+#else
+  setenv(name, value.string().c_str(), 1);
+#endif
+}
+
+}  // namespace
+
 int main() {
+  // User settings persist every user-configurable connection and audio choice.
+  {
+    const std::filesystem::path scratch = std::filesystem::temp_directory_path() / "nockvm_test_user_settings";
+    std::filesystem::remove_all(scratch);
+    set_env("NOCKVM_HOME", scratch);
+
+    UserSettings settings;
+    settings.connection_timeout_s = 45;
+    settings.auto_connect_enabled = false;
+    settings.slave_audio_send_enabled = false;
+    settings.slave_audio_format = {24000, 8};
+    settings.master_audio_overridden = true;
+    settings.master_audio_send_enabled = false;
+    settings.master_audio_format = {24000, 8};
+    save_user_settings(settings);
+
+    const UserSettings loaded = load_user_settings();
+    assert(loaded.connection_timeout_s == 45);
+    assert(!loaded.auto_connect_enabled);
+    assert(!loaded.slave_audio_send_enabled);
+    assert(loaded.slave_audio_format == settings.slave_audio_format);
+    assert(loaded.master_audio_overridden);
+    assert(!loaded.master_audio_send_enabled);
+    assert(loaded.master_audio_format == settings.master_audio_format);
+
+    std::ofstream out(scratch / "user_settings");
+    out << "connection_timeout_s 0\nslave_audio 1 12345 32\nmaster_audio 1 1 48000 16\n";
+    out.close();
+    const UserSettings recovered = load_user_settings();
+    assert(recovered.connection_timeout_s == 10);
+    assert(recovered.slave_audio_send_enabled);
+    assert(recovered.slave_audio_format == nockvm::audio::AudioFormat{});
+    assert(recovered.master_audio_overridden);
+    assert(recovered.master_audio_send_enabled);
+    assert(recovered.master_audio_format == nockvm::audio::AudioFormat{});
+
+    std::filesystem::remove_all(scratch);
+  }
+
   // Round-trip: Master
   {
     const AnnouncePacket packet = encode_announce(0x0123456789ABCDEFULL, Role::Master, 4242, "master-pc");

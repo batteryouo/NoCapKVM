@@ -7,6 +7,7 @@
 #include "nockvm/discovery/connection_types.h"
 #include "nockvm/discovery/identity.h"
 #include "nockvm/discovery/types.h"
+#include "nockvm/discovery/user_settings.h"
 #include "nockvm/topology/crossing.h"
 #include "quit.h"
 
@@ -91,6 +92,18 @@ void start_discovery(AppState& state, discovery::Role role) {
 
 const char* role_label(discovery::Role role) { return role == discovery::Role::Master ? "Master" : "Slave"; }
 
+void save_user_settings(const AppState& state) {
+  discovery::UserSettings settings;
+  settings.connection_timeout_s = state.connection_timeout_s;
+  settings.auto_connect_enabled = state.auto_connect_enabled;
+  settings.slave_audio_send_enabled = state.audio_send_enabled;
+  settings.slave_audio_format = state.audio_desired_format;
+  settings.master_audio_overridden = state.audio_master_overridden;
+  settings.master_audio_send_enabled = state.audio_master_desired_send_enabled;
+  settings.master_audio_format = state.audio_master_desired_format;
+  discovery::save_user_settings(settings);
+}
+
 std::string resolve_peer_name(const AppState& state, uint64_t device_id, const std::string& fallback_ip) {
   for (const auto& peer : state.listener->peers()) {
     if (peer.device_id == device_id) return peer.hostname;
@@ -151,15 +164,18 @@ void draw_connection_tab(AppState& state) {
   const discovery::Role wanted = state.role == discovery::Role::Master ? discovery::Role::Slave : discovery::Role::Master;
   const bool is_slave = state.role == discovery::Role::Slave;
 
-  ImGui::InputInt("Connection timeout (s)", &state.connection_timeout_s);
+  bool connection_settings_changed = ImGui::InputInt("Connection timeout (s)", &state.connection_timeout_s);
+  const int connection_timeout_before_clamp = state.connection_timeout_s;
   state.connection_timeout_s = std::max(1, state.connection_timeout_s);
+  connection_settings_changed = connection_settings_changed || state.connection_timeout_s != connection_timeout_before_clamp;
+  if (connection_settings_changed) save_user_settings(state);
   ImGui::TextUnformatted(
       is_slave ? "(Give up auto-reconnecting after this many seconds of continuous disconnection.)"
                : "(Force-disconnect a silent Slave after this many seconds with no traffic.)");
   if (state.tcp_server) state.tcp_server->set_heartbeat_timeout(std::chrono::seconds(state.connection_timeout_s));
 
   if (is_slave) {
-    ImGui::Checkbox("Auto-connect to trusted Masters", &state.auto_connect_enabled);
+    if (ImGui::Checkbox("Auto-connect to trusted Masters", &state.auto_connect_enabled)) save_user_settings(state);
     ImGui::TextUnformatted("(Automatically connects to any discovered Master already in the trusted list below.)");
   }
   ImGui::Spacing();
@@ -264,20 +280,31 @@ void draw_connection_tab(AppState& state) {
 
 void draw_audio_tab(AppState& state) {
   if (state.role == discovery::Role::Slave) {
-    ImGui::Checkbox("Send audio", &state.audio_send_enabled);
+    bool settings_changed = ImGui::Checkbox("Send audio", &state.audio_send_enabled);
     ImGui::Spacing();
 
     ImGui::TextUnformatted("Sample rate:");
-    if (ImGui::RadioButton("48kHz", state.audio_desired_format.sample_rate == 48000))
+    if (ImGui::RadioButton("48kHz", state.audio_desired_format.sample_rate == 48000)) {
       state.audio_desired_format.sample_rate = 48000;
+      settings_changed = true;
+    }
     ImGui::SameLine();
-    if (ImGui::RadioButton("24kHz", state.audio_desired_format.sample_rate == 24000))
+    if (ImGui::RadioButton("24kHz", state.audio_desired_format.sample_rate == 24000)) {
       state.audio_desired_format.sample_rate = 24000;
+      settings_changed = true;
+    }
 
     ImGui::TextUnformatted("Bit depth:");
-    if (ImGui::RadioButton("16-bit", state.audio_desired_format.bit_depth == 16)) state.audio_desired_format.bit_depth = 16;
+    if (ImGui::RadioButton("16-bit", state.audio_desired_format.bit_depth == 16)) {
+      state.audio_desired_format.bit_depth = 16;
+      settings_changed = true;
+    }
     ImGui::SameLine();
-    if (ImGui::RadioButton("8-bit", state.audio_desired_format.bit_depth == 8)) state.audio_desired_format.bit_depth = 8;
+    if (ImGui::RadioButton("8-bit", state.audio_desired_format.bit_depth == 8)) {
+      state.audio_desired_format.bit_depth = 8;
+      settings_changed = true;
+    }
+    if (settings_changed) save_user_settings(state);
 
     ImGui::Spacing();
     if (state.audio_active) {
@@ -298,30 +325,39 @@ void draw_audio_tab(AppState& state) {
     // the same audio_master_desired_* the radio buttons above are bound to,
     // this section only decides when clicking one starts being a request.
     ImGui::TextUnformatted(state.audio_master_overridden ? "Requesting from Slave:" : "Slave's current settings:");
-    if (ImGui::Checkbox("Send audio", &state.audio_master_desired_send_enabled)) state.audio_master_overridden = true;
+    bool settings_changed = false;
+    if (ImGui::Checkbox("Send audio", &state.audio_master_desired_send_enabled)) {
+      state.audio_master_overridden = true;
+      settings_changed = true;
+    }
     ImGui::Spacing();
 
     ImGui::TextUnformatted("Sample rate:");
     if (ImGui::RadioButton("48kHz", state.audio_master_desired_format.sample_rate == 48000)) {
       state.audio_master_desired_format.sample_rate = 48000;
       state.audio_master_overridden = true;
+      settings_changed = true;
     }
     ImGui::SameLine();
     if (ImGui::RadioButton("24kHz", state.audio_master_desired_format.sample_rate == 24000)) {
       state.audio_master_desired_format.sample_rate = 24000;
       state.audio_master_overridden = true;
+      settings_changed = true;
     }
 
     ImGui::TextUnformatted("Bit depth:");
     if (ImGui::RadioButton("16-bit", state.audio_master_desired_format.bit_depth == 16)) {
       state.audio_master_desired_format.bit_depth = 16;
       state.audio_master_overridden = true;
+      settings_changed = true;
     }
     ImGui::SameLine();
     if (ImGui::RadioButton("8-bit", state.audio_master_desired_format.bit_depth == 8)) {
       state.audio_master_desired_format.bit_depth = 8;
       state.audio_master_overridden = true;
+      settings_changed = true;
     }
+    if (settings_changed) save_user_settings(state);
 
     ImGui::Spacing();
     if (state.tcp_server && state.tcp_server->status().state == discovery::ConnectionState::Connected) {

@@ -11,6 +11,7 @@
 #include "clipboard_pump.h"
 #include "input_pump.h"
 #include "nockvm/discovery/identity.h"
+#include "nockvm/discovery/user_settings.h"
 #include "nockvm/display/monitor_info.h"
 #include "nockvm/input/hook.h"
 #include "nockvm/input/inject.h"
@@ -172,6 +173,14 @@ int main() {
   ImGui_ImplOpenGL3_Init("#version 130");
 
   nockvm::app::AppState state;
+  const nockvm::discovery::UserSettings settings = nockvm::discovery::load_user_settings();
+  state.connection_timeout_s = settings.connection_timeout_s;
+  state.auto_connect_enabled = settings.auto_connect_enabled;
+  state.audio_send_enabled = settings.slave_audio_send_enabled;
+  state.audio_desired_format = settings.slave_audio_format;
+  state.audio_master_overridden = settings.master_audio_overridden;
+  state.audio_master_desired_send_enabled = settings.master_audio_send_enabled;
+  state.audio_master_desired_format = settings.master_audio_format;
   state.device_id = nockvm::discovery::get_or_create_device_id();
   state.hostname = nockvm::discovery::get_hostname();
   state.local_monitors = nockvm::display::get_local_monitors();
