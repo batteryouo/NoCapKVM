@@ -45,3 +45,7 @@ add_test(NAME test_reconnect_tracker COMMAND test_reconnect_tracker)
 add_executable(test_audio_loss_window test_audio_loss_window.cpp)
 target_include_directories(test_audio_loss_window PRIVATE ${CMAKE_SOURCE_DIR}/src/app)
 add_test(NAME test_audio_loss_window COMMAND test_audio_loss_window)
+
+add_executable(test_buffer_depth_window test_buffer_depth_window.cpp)
+target_include_directories(test_buffer_depth_window PRIVATE ${CMAKE_SOURCE_DIR}/src/app)
+add_test(NAME test_buffer_depth_window COMMAND test_buffer_depth_window)

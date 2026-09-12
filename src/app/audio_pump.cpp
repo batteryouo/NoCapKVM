@@ -33,6 +33,7 @@ void stop_master_audio(AppState& state) {
   state.audio_playback.reset();
   state.audio_recv_channel.reset();
   state.audio_loss_window.reset();
+  state.jitter_buffer_depth_window.reset();
   telemetry::log_event("audio.master_stopped", "playback stopped");
 }
 
@@ -114,6 +115,7 @@ void pump_master(AppState& state) {
     state.audio_underruns_baseline = telemetry::counters().audio_underruns.load(std::memory_order_relaxed);
     state.audio_loss_window.reset();
     state.audio_loss_window_last_sample_at = {};
+    state.jitter_buffer_depth_window.reset();
     if (!state.audio_playback->start(peer_format)) {
       // Drop it entirely rather than leaving a playback object whose device
       // never opened: its jitter buffer would have no consumer at all, so
@@ -141,6 +143,7 @@ void pump_master(AppState& state) {
   const auto now = std::chrono::steady_clock::now();
   if (now - state.audio_loss_window_last_sample_at >= kAudioLossSampleInterval) {
     state.audio_loss_window.record(now, state.audio_playback->playout_misses(), state.audio_playback->frames_played());
+    state.jitter_buffer_depth_window.record(now, state.audio_playback->buffered_packets());
     state.audio_loss_window_last_sample_at = now;
   }
 

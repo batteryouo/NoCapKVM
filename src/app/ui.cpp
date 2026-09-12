@@ -203,9 +203,13 @@ void draw_connection_quality(AppState& state, const discovery::ConnectionInfo& i
                                     : 0;
     ImGui::Text("Audio underruns (since playback started): %llu", static_cast<unsigned long long>(underruns));
 
-    const size_t depth = state.audio_playback ? state.audio_playback->buffered_packets() : 0;
     const size_t capacity = state.audio_playback ? state.audio_playback->buffer_capacity() : 0;
-    ImGui::Text("Jitter buffer: %zu / %zu packets", depth, capacity);
+    if (state.jitter_buffer_depth_window.ready()) {
+      ImGui::Text("Jitter buffer peak (last 10 s): %zu / %zu packets",
+                  state.jitter_buffer_depth_window.maximum(), capacity);
+    } else {
+      ImGui::TextUnformatted("Jitter buffer peak (last 10 s): measuring...");
+    }
   } else {
     ImGui::TextUnformatted("Audio playout misses: not applicable (playback happens on the Master)");
     ImGui::TextUnformatted("Audio underruns: not applicable (playback happens on the Master)");

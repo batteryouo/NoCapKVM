@@ -19,6 +19,7 @@
 #include "nockvm/input/hook.h"
 #include "nockvm/topology/arrangement.h"
 #include "audio_loss_window.h"
+#include "buffer_depth_window.h"
 #include "retry_backoff.h"
 
 namespace nockvm::app {
@@ -84,6 +85,7 @@ struct AppState {
   // audio_underruns_baseline above, for the same reason.
   AudioLossWindow audio_loss_window;
   std::chrono::steady_clock::time_point audio_loss_window_last_sample_at{};
+  BufferDepthWindow jitter_buffer_depth_window;
   std::unique_ptr<audio::AudioChannel> audio_recv_channel;   // Master only, wraps tcp_server's audio_socket()
   audio::AudioFormat audio_master_active_format;  // Master only: what audio_playback is currently configured for
   std::unique_ptr<audio::AudioCapture> audio_capture;        // Slave only
