@@ -270,6 +270,23 @@ void pump_input(AppState& state) {
     }
   }
 
+  // A Slave can lose its last display while it owns input. There is then no
+  // remote desktop boundary from which a normal return crossing could be
+  // detected, so release the local hook immediately instead of leaving all
+  // physical mouse movement suppressed.
+  if (!state.input_owned_by_master && info.peer_monitors.empty()) {
+    const topology::ClusterBounds b = topology::compute_bounds(state.local_monitors);
+    const int32_t safe_x = (b.min_x + b.max_x) / 2;
+    const int32_t safe_y = (b.min_y + b.max_y) / 2;
+    state.input_hook.resume(safe_x, safe_y);
+    state.input_owned_by_master = true;
+    state.input_logical_x = safe_x;
+    state.input_logical_y = safe_y;
+    state.input_just_handed_off = true;
+    release_held_keys_on_slave(state);
+    return;
+  }
+
   const input::InputFrame frame = state.input_hook.poll();
 
   // Track held keys so handoffs can release them on the previous owner.
