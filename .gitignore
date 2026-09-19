@@ -16,6 +16,7 @@ tmp/
 .agents/
 .codex/
 CLAUDE.md
+AGENTS.md
 
 # editor setting
 .vscode/
