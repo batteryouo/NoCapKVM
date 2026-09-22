@@ -192,14 +192,48 @@ int main() {
 
   nockvm::telemetry::init(nockvm::discovery::get_config_dir() / "logs");
 
+  // How long a hidden-window iteration may block in glfwWaitEventsTimeout()
+  // before running the pumps below again on its own. Matches the ~60Hz
+  // cadence a vsynced visible frame would normally run at, so audio/tray/
+  // clipboard pumping stays just as responsive while hidden -- any actual
+  // Windows message (including WH_MOUSE_LL/WH_KEYBOARD_LL hook delivery,
+  // which requires this thread to be pumping messages promptly) wakes the
+  // wait immediately regardless of this timeout.
+  constexpr double kHiddenLoopWaitSeconds = 1.0 / 60.0;
+
   while (!glfwWindowShouldClose(window) && !nockvm::app::quit_requested()) {
     const auto frame_start = std::chrono::steady_clock::now();
-    glfwPollEvents();
+    const bool window_visible = glfwGetWindowAttrib(window, GLFW_VISIBLE) != 0;
+
+    if (window_visible) {
+      glfwPollEvents();
+    } else {
+      // A hidden window's glfwSwapBuffers() can be throttled by the OS/GPU
+      // driver for an unbounded and growing duration (present calls have no
+      // reason to hurry when nothing is being displayed), which would stall
+      // this thread's message pump and, with it, WH_MOUSE_LL/WH_KEYBOARD_LL
+      // hook delivery -- Windows only calls a low-level hook proc while its
+      // owning thread is promptly pumping messages, so a stalled pump here
+      // delays the physical mouse/keyboard system-wide, not just this app's
+      // own rendering. Skip rendering entirely while hidden (see below) and
+      // wait on the message queue instead of spinning, so this thread stays
+      // idle-but-responsive rather than either busy-looping or blocking in
+      // a throttled present call.
+      glfwWaitEventsTimeout(kHiddenLoopWaitSeconds);
+    }
+
     nockvm::app::pump_input(state);
     nockvm::app::pump_audio(state);
     nockvm::app::pump_auto_connect(state);
     nockvm::app::pump_tray();
     nockvm::app::pump_clipboard(state);
+
+    if (!window_visible) {
+      const double frame_time_ms =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_start).count();
+      nockvm::app::pump_telemetry(state, frame_time_ms, false);
+      continue;
+    }
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
@@ -224,7 +258,7 @@ int main() {
 
     const double frame_time_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_start).count();
-    nockvm::app::pump_telemetry(state, frame_time_ms, glfwGetWindowAttrib(window, GLFW_VISIBLE) != 0);
+    nockvm::app::pump_telemetry(state, frame_time_ms, true);
   }
 
   // Emit per-step shutdown timing for diagnosing close-time stalls.
