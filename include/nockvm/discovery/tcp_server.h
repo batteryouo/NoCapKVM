@@ -71,6 +71,10 @@ public:
   // backlog overflowed (which also drops the connection). Thread-safe.
   bool send_input(uint8_t msg_type, const uint8_t* payload, size_t len);
 
+  // Like send_input(), but overwrites the newest queued message instead of
+  // appending when it has the same type (see OutgoingQueue::push_latest()).
+  bool send_input_latest(uint8_t msg_type, const uint8_t* payload, size_t len);
+
   // Like send_input(), for large payloads (clipboard): sent only when no
   // send_input() message is waiting, and replaced if a newer one is queued
   // before it starts sending.

@@ -134,7 +134,7 @@ void handle_master_owned(InputSession& s, const discovery::ConnectionInfo& info,
       s.hook.suppress();
 
       const auto payload = input::encode_mouse_absolute(s.logical_x, s.logical_y);
-      s.server.send_input(input::kMsgMouseAbsolute, payload.data(), payload.size());
+      s.server.send_input_latest(input::kMsgMouseAbsolute, payload.data(), payload.size());
       // Order matters: current_modifier_mask() reads the real physical
       // state, so it has to run before the local release below fakes those
       // keys up. Slave wants what's actually held; Windows must forget it.
@@ -191,7 +191,7 @@ void handle_slave_owned(InputSession& s, const discovery::ConnectionInfo& info, 
   // margin within one frame's batched delta.
   {
     const auto payload = input::encode_mouse_absolute(bc.clamped_x, bc.clamped_y);
-    s.server.send_input(input::kMsgMouseAbsolute, payload.data(), payload.size());
+    s.server.send_input_latest(input::kMsgMouseAbsolute, payload.data(), payload.size());
   }
   for (const auto& b : frame.buttons) {
     const auto payload = input::encode_mouse_button(b.button, b.down);

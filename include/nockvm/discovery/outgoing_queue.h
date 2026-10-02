@@ -22,7 +22,7 @@ class OutgoingQueue {
 public:
   enum class PushResult { Ok, Closed, Overflow };
 
-  explicit OutgoingQueue(size_t max_ordered = 2048) : max_ordered_(max_ordered) {}
+  explicit OutgoingQueue(size_t max_ordered = 32768) : max_ordered_(max_ordered) {}
 
   // Starts accepting pushes, discarding anything left from a previous open.
   void open();
@@ -33,6 +33,12 @@ public:
   // Appends to the ordered queue. Overflow means the writer has fallen
   // max_ordered messages behind; the message is not queued.
   PushResult push(uint8_t type, const uint8_t* payload, size_t len);
+
+  // Like push(), but if the newest queued ordered message has the same
+  // type, overwrites it instead of appending. For state where only the
+  // latest value matters (absolute pointer position), so a backlog does
+  // not replay stale values once the writer catches up.
+  PushResult push_latest(uint8_t type, const uint8_t* payload, size_t len);
 
   // Replaces any bulk message that has not started sending yet.
   PushResult push_bulk(uint8_t type, const uint8_t* payload, size_t len);

@@ -1,5 +1,4 @@
 #include "input_service.h"
-#include <future>
 #include <utility>
 #include "app_state.h"
 #include "nockvm/telemetry/counters.h"
@@ -68,25 +67,18 @@ InputService::InputService(discovery::TcpServer& server, const topology::ScreenA
                            std::vector<display::MonitorInfo> local_monitors)
     : session_(server, arrangement, std::move(local_monitors)) {
 #ifdef _WIN32
-  std::promise<unsigned long> started;
-  std::future<unsigned long> thread_id = started.get_future();
-  thread_ = std::thread([this, &started] {
-    MSG msg;
-    // Creates this thread's message queue before its id is published, so
-    // the destructor's wake-up PostThreadMessageW() can't be dropped.
-    PeekMessageW(&msg, nullptr, 0, 0, PM_NOREMOVE);
-    started.set_value(GetCurrentThreadId());
-    run();
-  });
-  thread_id_ = thread_id.get();
+  stop_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (stop_event_) thread_ = std::thread(&InputService::run, this);
 #endif
 }
 
 InputService::~InputService() {
 #ifdef _WIN32
-  stop_.store(true);
-  PostThreadMessageW(thread_id_, WM_NULL, 0, 0);
-  if (thread_.joinable()) thread_.join();
+  if (stop_event_) {
+    SetEvent(stop_event_);
+    if (thread_.joinable()) thread_.join();
+    CloseHandle(stop_event_);
+  }
 #endif
 }
 
@@ -106,13 +98,14 @@ void InputService::run() {
   const HWND sink = create_sink_window();
   if (sink) set_raw_mouse_target(sink);
 
+  const HANDLE stop = static_cast<HANDLE>(stop_event_);
   MSG msg;
-  while (!stop_.load()) {
+  while (WaitForSingleObject(stop, 0) != WAIT_OBJECT_0) {
     // Low-level hook callbacks for this thread run inside PeekMessageW().
     while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&msg);
     pump_input(session_);
     publish_status();
-    MsgWaitForMultipleObjectsEx(0, nullptr, kIdleWaitMs, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    MsgWaitForMultipleObjectsEx(1, &stop, kIdleWaitMs, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
   }
 
   deactivate_input(session_);

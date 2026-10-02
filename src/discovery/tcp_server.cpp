@@ -114,6 +114,10 @@ bool TcpServer::send_input(uint8_t msg_type, const uint8_t* payload, size_t len)
   return queue_result(outgoing_.push(msg_type, payload, len));
 }
 
+bool TcpServer::send_input_latest(uint8_t msg_type, const uint8_t* payload, size_t len) {
+  return queue_result(outgoing_.push_latest(msg_type, payload, len));
+}
+
 bool TcpServer::send_bulk(uint8_t msg_type, const uint8_t* payload, size_t len) {
   return queue_result(outgoing_.push_bulk(msg_type, payload, len));
 }

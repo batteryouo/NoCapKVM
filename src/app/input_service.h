@@ -1,5 +1,4 @@
 #pragma once
-#include <atomic>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -37,8 +36,7 @@ private:
   void publish_status();
 
   InputSession session_;
-  std::atomic<bool> stop_{false};
-  unsigned long thread_id_ = 0;  // Win32 thread id, valid once the constructor returns
+  void* stop_event_ = nullptr;  // Win32 manual-reset event; signaled to end run()
   mutable std::mutex status_mutex_;
   InputStatus status_;  // guarded by status_mutex_
   std::thread thread_;

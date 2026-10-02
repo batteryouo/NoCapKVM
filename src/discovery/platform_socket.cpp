@@ -147,9 +147,14 @@ bool connect_with_timeout(socket_t sock, const sockaddr* addr, size_t addr_len, 
 }
 
 bool send_all(socket_t sock, const uint8_t* data, size_t len) {
+  // Bounded per call so a send timeout (SO_SNDTIMEO) measures lack of
+  // progress, not the time to transmit a whole multi-MB buffer: Windows
+  // applies it to each send() call as a whole.
+  constexpr size_t kMaxChunk = 64 * 1024;
   size_t sent = 0;
   while (sent < len) {
-    const int n = send(sock, reinterpret_cast<const char*>(data + sent), static_cast<int>(len - sent), 0);
+    const size_t chunk = len - sent < kMaxChunk ? len - sent : kMaxChunk;
+    const int n = send(sock, reinterpret_cast<const char*>(data + sent), static_cast<int>(chunk), 0);
     if (n <= 0) return false;
     sent += static_cast<size_t>(n);
   }

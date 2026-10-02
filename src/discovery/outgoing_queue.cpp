@@ -30,6 +30,21 @@ OutgoingQueue::PushResult OutgoingQueue::push(uint8_t type, const uint8_t* paylo
   return PushResult::Ok;
 }
 
+OutgoingQueue::PushResult OutgoingQueue::push_latest(uint8_t type, const uint8_t* payload, size_t len) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!open_) return PushResult::Closed;
+    if (!ordered_.empty() && ordered_.back().type == type) {
+      ordered_.back().payload.assign(payload, payload + len);
+      return PushResult::Ok;
+    }
+    if (ordered_.size() >= max_ordered_) return PushResult::Overflow;
+    ordered_.push_back(OutgoingMessage{type, std::vector<uint8_t>(payload, payload + len)});
+  }
+  cv_.notify_one();
+  return PushResult::Ok;
+}
+
 OutgoingQueue::PushResult OutgoingQueue::push_bulk(uint8_t type, const uint8_t* payload, size_t len) {
   {
     std::lock_guard<std::mutex> lock(mutex_);

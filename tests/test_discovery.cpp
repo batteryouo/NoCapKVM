@@ -269,6 +269,24 @@ int main() {
     assert(m && m->type == 14);
   }
 
+  // OutgoingQueue: push_latest() overwrites only a same-type message at the
+  // tail, so it never reorders against other message types.
+  {
+    OutgoingQueue q;
+    q.open();
+    const uint8_t p1 = 1, p2 = 2, p3 = 3, key = 9;
+    assert(q.push_latest(20, &p1, 1) == OutgoingQueue::PushResult::Ok);
+    assert(q.push_latest(20, &p2, 1) == OutgoingQueue::PushResult::Ok);
+    assert(q.push(21, &key, 1) == OutgoingQueue::PushResult::Ok);
+    assert(q.push_latest(20, &p3, 1) == OutgoingQueue::PushResult::Ok);
+    auto m = q.pop();
+    assert(m && m->type == 20 && m->payload == std::vector<uint8_t>{2});
+    m = q.pop();
+    assert(m && m->type == 21);
+    m = q.pop();
+    assert(m && m->type == 20 && m->payload == std::vector<uint8_t>{3});
+  }
+
   // OutgoingQueue: close() wakes a writer blocked in pop().
   {
     OutgoingQueue q;
