@@ -2,6 +2,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include "nockvm/telemetry/counters.h"
 
 namespace nockvm::input {
 namespace {
@@ -95,6 +96,7 @@ LRESULT CALLBACK mouse_proc(int code, WPARAM wparam, LPARAM lparam) {
   // desktop/cursor locally, unlike the real two-machine deployment where
   // each side's input is naturally isolated to its own desktop).
   if (info->flags & LLMHF_INJECTED) return CallNextHookEx(nullptr, code, wparam, lparam);
+  telemetry::record_hook_lag(GetTickCount() - info->time);
 
   const bool suppress = self->suppress_.load();
 
@@ -143,6 +145,7 @@ LRESULT CALLBACK keyboard_proc(int code, WPARAM wparam, LPARAM lparam) {
   // so a same-machine Slave process's own injected keys don't get fought by
   // Master's hook.
   if (info->flags & LLKHF_INJECTED) return CallNextHookEx(nullptr, code, wparam, lparam);
+  telemetry::record_hook_lag(GetTickCount() - info->time);
 
   const bool down = (wparam == WM_KEYDOWN || wparam == WM_SYSKEYDOWN);
   const bool extended = (info->flags & LLKHF_EXTENDED) != 0;

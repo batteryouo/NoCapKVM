@@ -4,7 +4,7 @@ add_library(nockvm_input STATIC
   protocol.cpp
 )
 target_include_directories(nockvm_input PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(nockvm_input PUBLIC nockvm_common)
+target_link_libraries(nockvm_input PUBLIC nockvm_common PRIVATE nockvm_telemetry)
 
 if(WIN32)
   target_link_libraries(nockvm_input PUBLIC user32)

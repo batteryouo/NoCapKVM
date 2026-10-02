@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -6,6 +7,14 @@
 #include <string_view>
 
 namespace nockvm::telemetry {
+
+// Timed sections of one main-loop iteration, in execution order.
+enum class FrameSegment : size_t { Events, Input, Audio, AutoConnect, Tray, Clipboard, Render, Swap, Count };
+constexpr size_t kFrameSegmentCount = static_cast<size_t>(FrameSegment::Count);
+using FrameSegmentTimes = std::array<double, kFrameSegmentCount>;
+
+// Short lowercase label used for a segment in the periodic summary line.
+const char* frame_segment_name(FrameSegment segment);
 
 struct PeriodicSummary {
   uint64_t uptime_s = 0;
@@ -31,6 +40,11 @@ struct PeriodicSummary {
   uint64_t raw_input_processed = 0;
   uint64_t clipboard_sent = 0;
   uint64_t clipboard_received = 0;
+  uint64_t hook_events = 0;
+  uint32_t hook_lag_max_ms = 0;
+  uint64_t hook_lag_slow = 0;
+  // Per-segment maximum duration over the report interval.
+  FrameSegmentTimes segment_max_ms{};
   bool connected = false;
   std::string connection_state;
   std::string role;

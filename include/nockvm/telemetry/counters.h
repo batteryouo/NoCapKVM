@@ -8,8 +8,8 @@ namespace nockvm::telemetry {
 // network receive, the jitter buffer, playback callbacks, clipboard sync.
 // Every member is atomic so any thread can increment it without a lock;
 // the periodic reporter (telemetry.cpp) is the only reader, and it only
-// ever reads from the main thread. Incrementing one of these must stay a
-// single fetch_add -- no formatting, no I/O, no allocation.
+// ever reads from the main thread. Updating one of these must stay a
+// lock-free atomic operation -- no formatting, no I/O, no allocation.
 struct Counters {
   std::atomic<uint64_t> raw_input_events{0};
   // Count of raw-input events that actually ran the allocating processing
@@ -28,8 +28,22 @@ struct Counters {
 
   std::atomic<uint64_t> clipboard_sent{0};
   std::atomic<uint64_t> clipboard_received{0};
+
+  // Low-level hook delivery lag, fed by record_hook_lag(). hook_lag_max_ms
+  // is the maximum since the last periodic report; the reporter resets it.
+  std::atomic<uint64_t> hook_events{0};
+  std::atomic<uint64_t> hook_lag_slow{0};
+  std::atomic<uint32_t> hook_lag_max_ms{0};
 };
 
 Counters& counters();
+
+// A hook event delivered at least this late counts toward hook_lag_slow.
+constexpr uint32_t kHookLagSlowMs = 50;
+
+// Records how long one WH_MOUSE_LL/WH_KEYBOARD_LL event waited between
+// being timestamped by the OS and reaching the hook callback. Safe to call
+// from the hook callback itself.
+void record_hook_lag(uint32_t lag_ms);
 
 }  // namespace nockvm::telemetry

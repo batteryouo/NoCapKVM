@@ -19,7 +19,8 @@ const char* state_name(discovery::ConnectionState s) {
 
 }  // namespace
 
-void pump_telemetry(AppState& state, double frame_time_ms, bool window_visible) {
+void pump_telemetry(AppState& state, double frame_time_ms, bool window_visible,
+                    const telemetry::FrameSegmentTimes& segments) {
   if (state.telemetry_last_window_visible != window_visible) {
     telemetry::log_event(window_visible ? "window.shown" : "window.hidden",
                           window_visible ? "window restored from tray" : "window hidden to tray");
@@ -49,6 +50,7 @@ void pump_telemetry(AppState& state, double frame_time_ms, bool window_visible) 
 
   telemetry::FrameContext ctx;
   ctx.window_visible = window_visible;
+  ctx.segment_ms = segments;
   ctx.connected = conn_state == discovery::ConnectionState::Connected;
   ctx.role = state.role == discovery::Role::Master ? "master" : "slave";
   ctx.connection_state = state_name(conn_state);

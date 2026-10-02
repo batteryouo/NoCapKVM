@@ -18,15 +18,31 @@ std::string format_timestamp(std::chrono::system_clock::time_point tp) {
   return buf;
 }
 
+const char* frame_segment_name(FrameSegment segment) {
+  switch (segment) {
+    case FrameSegment::Events: return "events";
+    case FrameSegment::Input: return "input";
+    case FrameSegment::Audio: return "audio";
+    case FrameSegment::AutoConnect: return "autoconnect";
+    case FrameSegment::Tray: return "tray";
+    case FrameSegment::Clipboard: return "clipboard";
+    case FrameSegment::Render: return "render";
+    case FrameSegment::Swap: return "swap";
+    case FrameSegment::Count: break;
+  }
+  return "unknown";
+}
+
 std::string format_periodic_summary(const PeriodicSummary& s) {
-  char buf[768];
+  char buf[1024];
   std::snprintf(buf, sizeof(buf),
                 "uptime_s=%llu cpu_pct=%.1f working_set_mib=%.0f private_mib=%.0f handles=%u "
                 "fps=%.1f frame_avg_ms=%.1f frame_max_ms=%.1f window_visible=%s "
                 "audio_buffer=%zu/%zu audio_rx_pps=%.1f audio_rx=%llu audio_decoded=%llu "
                 "audio_rejected=%llu audio_dropped=%llu audio_underruns=%llu audio_start_failures=%llu "
                 "raw_input_pps=%.1f raw_input_total=%llu raw_input_processed=%llu "
-                "clipboard_sent=%llu clipboard_received=%llu connected=%s role=%s state=%s",
+                "clipboard_sent=%llu clipboard_received=%llu hook_events=%llu hook_lag_max_ms=%u hook_lag_slow=%llu "
+                "connected=%s role=%s state=%s",
                 static_cast<unsigned long long>(s.uptime_s), s.cpu_pct, s.working_set_mib, s.private_mib, s.handles,
                 s.fps, s.frame_avg_ms, s.frame_max_ms, s.window_visible ? "true" : "false", s.audio_buffer_depth,
                 s.audio_buffer_cap, s.audio_rx_pps, static_cast<unsigned long long>(s.audio_packets_received),
@@ -38,9 +54,18 @@ std::string format_periodic_summary(const PeriodicSummary& s) {
                 static_cast<unsigned long long>(s.raw_input_events),
                 static_cast<unsigned long long>(s.raw_input_processed),
                 static_cast<unsigned long long>(s.clipboard_sent),
-                static_cast<unsigned long long>(s.clipboard_received), s.connected ? "true" : "false",
+                static_cast<unsigned long long>(s.clipboard_received), static_cast<unsigned long long>(s.hook_events),
+                s.hook_lag_max_ms, static_cast<unsigned long long>(s.hook_lag_slow), s.connected ? "true" : "false",
                 s.role.c_str(), s.connection_state.c_str());
-  return buf;
+  std::string line = buf;
+  line += " seg_max_ms=";
+  for (size_t i = 0; i < kFrameSegmentCount; ++i) {
+    char seg[48];
+    std::snprintf(seg, sizeof(seg), "%s%s:%.1f", i == 0 ? "" : ",", frame_segment_name(static_cast<FrameSegment>(i)),
+                  s.segment_max_ms[i]);
+    line += seg;
+  }
+  return line;
 }
 
 std::string format_event_line(std::string_view key, std::string_view message) {

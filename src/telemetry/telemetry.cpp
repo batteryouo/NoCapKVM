@@ -24,6 +24,7 @@ std::chrono::steady_clock::time_point g_interval_start;
 uint64_t g_frame_count_interval = 0;
 double g_frame_time_sum_ms = 0.0;
 double g_frame_time_max_ms = 0.0;
+FrameSegmentTimes g_segment_max_ms{};
 
 uint64_t g_prev_audio_received = 0;
 uint64_t g_prev_audio_underruns = 0;
@@ -60,6 +61,9 @@ void tick(double frame_time_ms, const FrameContext& ctx) {
   ++g_frame_count_interval;
   g_frame_time_sum_ms += frame_time_ms;
   if (frame_time_ms > g_frame_time_max_ms) g_frame_time_max_ms = frame_time_ms;
+  for (size_t i = 0; i < kFrameSegmentCount; ++i) {
+    if (ctx.segment_ms[i] > g_segment_max_ms[i]) g_segment_max_ms[i] = ctx.segment_ms[i];
+  }
 
   const auto now = std::chrono::steady_clock::now();
   const double interval_s = std::chrono::duration<double>(now - g_interval_start).count();
@@ -76,6 +80,9 @@ void tick(double frame_time_ms, const FrameContext& ctx) {
   const uint64_t clipboard_sent = c.clipboard_sent.load(std::memory_order_relaxed);
   const uint64_t clipboard_received = c.clipboard_received.load(std::memory_order_relaxed);
   const uint64_t audio_slave_start_failures = c.audio_slave_start_failures.load(std::memory_order_relaxed);
+  const uint64_t hook_events = c.hook_events.load(std::memory_order_relaxed);
+  const uint64_t hook_lag_slow = c.hook_lag_slow.load(std::memory_order_relaxed);
+  const uint32_t hook_lag_max_ms = c.hook_lag_max_ms.exchange(0, std::memory_order_relaxed);
 
   const uint64_t underrun_delta = audio_underruns - g_prev_audio_underruns;
   const GenerationCounter current_jitter_cap{ctx.audio_playback_generation, ctx.audio_jitter_cap_episodes};
@@ -107,6 +114,10 @@ void tick(double frame_time_ms, const FrameContext& ctx) {
   s.raw_input_processed = raw_input_processed;
   s.clipboard_sent = clipboard_sent;
   s.clipboard_received = clipboard_received;
+  s.hook_events = hook_events;
+  s.hook_lag_max_ms = hook_lag_max_ms;
+  s.hook_lag_slow = hook_lag_slow;
+  s.segment_max_ms = g_segment_max_ms;
   s.connected = ctx.connected;
   s.connection_state = ctx.connection_state;
   s.role = ctx.role;
@@ -133,6 +144,7 @@ void tick(double frame_time_ms, const FrameContext& ctx) {
   g_frame_count_interval = 0;
   g_frame_time_sum_ms = 0.0;
   g_frame_time_max_ms = 0.0;
+  g_segment_max_ms.fill(0.0);
   g_interval_start = now;
 }
 

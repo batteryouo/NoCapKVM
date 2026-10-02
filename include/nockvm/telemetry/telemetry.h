@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include "nockvm/telemetry/format.h"
 
 namespace nockvm::telemetry {
 
@@ -33,6 +34,7 @@ struct FrameContext {
   bool connected = false;
   std::string role;              // "master" or "slave"
   std::string connection_state;  // e.g. "connected", "idle", "pairing"
+  FrameSegmentTimes segment_ms{};
 };
 
 // Call once per frame from the main loop, right after measuring this

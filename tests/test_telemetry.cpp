@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include "nockvm/telemetry/counter_delta.h"
+#include "nockvm/telemetry/counters.h"
 #include "nockvm/telemetry/format.h"
 #include "nockvm/telemetry/logger.h"
 
@@ -140,6 +141,11 @@ int main() {
     s.raw_input_processed = 4200;
     s.clipboard_sent = 2;
     s.clipboard_received = 1;
+    s.hook_events = 9000;
+    s.hook_lag_max_ms = 94;
+    s.hook_lag_slow = 12;
+    s.segment_max_ms[static_cast<size_t>(FrameSegment::Events)] = 0.5;
+    s.segment_max_ms[static_cast<size_t>(FrameSegment::Swap)] = 94.1;
     s.connected = true;
     s.connection_state = "connected";
     s.role = "master";
@@ -166,6 +172,11 @@ int main() {
     assert(line.find("raw_input_processed=4200") != std::string::npos);
     assert(line.find("clipboard_sent=2") != std::string::npos);
     assert(line.find("clipboard_received=1") != std::string::npos);
+    assert(line.find("hook_events=9000") != std::string::npos);
+    assert(line.find("hook_lag_max_ms=94") != std::string::npos);
+    assert(line.find("hook_lag_slow=12") != std::string::npos);
+    assert(line.find("seg_max_ms=events:0.5,input:0.0,") != std::string::npos);
+    assert(line.find(",swap:94.1") != std::string::npos);
     assert(line.find("connected=true") != std::string::npos);
     assert(line.find("role=master") != std::string::npos);
     assert(line.find("state=connected") != std::string::npos);
@@ -217,6 +228,19 @@ int main() {
     const GenerationCounter prev{1, 5};
     const GenerationCounter curr{1, 2};
     assert(generation_delta(prev, curr) == 0);
+  }
+
+  // record_hook_lag: counts every event, counts only events at or past
+  // kHookLagSlowMs as slow, and keeps the largest lag seen.
+  {
+    Counters& c = counters();
+    record_hook_lag(3);
+    record_hook_lag(kHookLagSlowMs);
+    record_hook_lag(120);
+    record_hook_lag(10);
+    assert(c.hook_events.load() == 4);
+    assert(c.hook_lag_slow.load() == 2);
+    assert(c.hook_lag_max_ms.load() == 120);
   }
 
   return 0;

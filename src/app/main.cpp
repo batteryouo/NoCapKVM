@@ -201,9 +201,17 @@ int main() {
   // wait immediately regardless of this timeout.
   constexpr double kHiddenLoopWaitSeconds = 1.0 / 60.0;
 
+  using nockvm::telemetry::FrameSegment;
   while (!glfwWindowShouldClose(window) && !nockvm::app::quit_requested()) {
     const auto frame_start = std::chrono::steady_clock::now();
     const bool window_visible = glfwGetWindowAttrib(window, GLFW_VISIBLE) != 0;
+    nockvm::telemetry::FrameSegmentTimes segments{};
+    auto segment_start = frame_start;
+    auto end_segment = [&](FrameSegment segment) {
+      const auto now = std::chrono::steady_clock::now();
+      segments[static_cast<size_t>(segment)] = std::chrono::duration<double, std::milli>(now - segment_start).count();
+      segment_start = now;
+    };
 
     if (window_visible) {
       glfwPollEvents();
@@ -221,17 +229,23 @@ int main() {
       // a throttled present call.
       glfwWaitEventsTimeout(kHiddenLoopWaitSeconds);
     }
+    end_segment(FrameSegment::Events);
 
     nockvm::app::pump_input(state);
+    end_segment(FrameSegment::Input);
     nockvm::app::pump_audio(state);
+    end_segment(FrameSegment::Audio);
     nockvm::app::pump_auto_connect(state);
+    end_segment(FrameSegment::AutoConnect);
     nockvm::app::pump_tray();
+    end_segment(FrameSegment::Tray);
     nockvm::app::pump_clipboard(state);
+    end_segment(FrameSegment::Clipboard);
 
     if (!window_visible) {
       const double frame_time_ms =
           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_start).count();
-      nockvm::app::pump_telemetry(state, frame_time_ms, false);
+      nockvm::app::pump_telemetry(state, frame_time_ms, false, segments);
       continue;
     }
 
@@ -253,12 +267,14 @@ int main() {
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    end_segment(FrameSegment::Render);
 
     glfwSwapBuffers(window);
+    end_segment(FrameSegment::Swap);
 
     const double frame_time_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_start).count();
-    nockvm::app::pump_telemetry(state, frame_time_ms, true);
+    nockvm::app::pump_telemetry(state, frame_time_ms, true, segments);
   }
 
   // Emit per-step shutdown timing for diagnosing close-time stalls.
