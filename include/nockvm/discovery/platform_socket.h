@@ -29,6 +29,7 @@ void close_socket(socket_t sock);
 bool set_broadcast(socket_t sock);
 bool set_reuse_address(socket_t sock);
 bool set_receive_timeout(socket_t sock, std::chrono::milliseconds timeout);
+bool set_send_timeout(socket_t sock, std::chrono::milliseconds timeout);
 
 // Disables Nagle's algorithm. Every message this project sends over a TCP
 // connection (mouse/key events, heartbeats, ...) is small and wants to hit

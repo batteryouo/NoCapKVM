@@ -82,6 +82,18 @@ bool set_receive_timeout(socket_t sock, std::chrono::milliseconds timeout) {
 #endif
 }
 
+bool set_send_timeout(socket_t sock, std::chrono::milliseconds timeout) {
+#ifdef _WIN32
+  DWORD ms = static_cast<DWORD>(timeout.count());
+  return setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&ms), sizeof(ms)) == 0;
+#else
+  struct timeval tv;
+  tv.tv_sec = static_cast<long>(timeout.count() / 1000);
+  tv.tv_usec = static_cast<long>((timeout.count() % 1000) * 1000);
+  return setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) == 0;
+#endif
+}
+
 bool wait_readable(socket_t sock, std::chrono::milliseconds timeout) {
   fd_set read_set;
   FD_ZERO(&read_set);

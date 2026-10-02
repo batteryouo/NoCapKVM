@@ -17,6 +17,7 @@ add_library(nockvm_discovery STATIC
   announcer.cpp
   listener.cpp
   tcp_server.cpp
+  outgoing_queue.cpp
   tcp_client.cpp
   noise_primitives.cpp
   noise_ik.cpp

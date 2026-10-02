@@ -79,7 +79,7 @@ void pump_clipboard(AppState& state) {
     const bool connected = state.tcp_server->status().state == discovery::ConnectionState::Connected;
     sync_clipboard(
         state, connected,
-        [&](uint8_t type, const uint8_t* data, size_t len) { state.tcp_server->send_input(type, data, len); },
+        [&](uint8_t type, const uint8_t* data, size_t len) { state.tcp_server->send_bulk(type, data, len); },
         [&](discovery::ClipboardMessage& out) { return state.tcp_server->take_pending_clipboard(out); });
   } else {
     if (!state.tcp_client) {

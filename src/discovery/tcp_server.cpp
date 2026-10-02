@@ -1,5 +1,6 @@
 #include "nockvm/discovery/tcp_server.h"
 #include <chrono>
+#include <optional>
 #include <thread>
 #include "nockvm/discovery/audio_port_protocol.h"
 #include "nockvm/discovery/monitor_protocol.h"
@@ -31,6 +32,9 @@ constexpr auto kHeartbeatInterval = std::chrono::milliseconds(1000);
 // still-outstanding one, freezing the RTT reading forever instead of just
 // missing one sample.
 constexpr auto kPingProbeTimeout = std::chrono::milliseconds(5000);
+// Bounds one blocking socket write, so a peer that stops reading without
+// closing fails the connection instead of hanging its writer forever.
+constexpr auto kSendTimeout = std::chrono::seconds(5);
 }  // namespace
 
 TcpServer::TcpServer(uint64_t own_device_id, KnownPeers& known_peers, std::chrono::milliseconds heartbeat_timeout)
@@ -107,9 +111,19 @@ void TcpServer::reject_pairing() { pairing_decision_ = PairingDecision::Rejected
 void TcpServer::disconnect_current() { disconnect_requested_ = true; }
 
 bool TcpServer::send_input(uint8_t msg_type, const uint8_t* payload, size_t len) {
-  std::lock_guard<std::mutex> lock(send_mutex_);
-  if (!active_channel_) return false;
-  return active_channel_->send(msg_type, payload, len);
+  return queue_result(outgoing_.push(msg_type, payload, len));
+}
+
+bool TcpServer::send_bulk(uint8_t msg_type, const uint8_t* payload, size_t len) {
+  return queue_result(outgoing_.push_bulk(msg_type, payload, len));
+}
+
+bool TcpServer::queue_result(OutgoingQueue::PushResult result) {
+  // A writer this far behind means the link is effectively dead for
+  // input; dropping the connection lets auto-reconnect start over clean
+  // instead of delivering ever-staler input.
+  if (result == OutgoingQueue::PushResult::Overflow) send_failed_.store(true);
+  return result == OutgoingQueue::PushResult::Ok;
 }
 
 bool TcpServer::take_pending_clipboard(ClipboardMessage& out) {
@@ -134,6 +148,7 @@ void TcpServer::run() {
     if (client == kInvalidSocket) continue;
 
     set_receive_timeout(client, std::chrono::milliseconds(200));
+    set_send_timeout(client, kSendTimeout);
     set_tcp_nodelay(client);
 
     char ip_buf[INET_ADDRSTRLEN];
@@ -248,10 +263,7 @@ void TcpServer::run() {
         // Disconnect -- otherwise auto-connect would just knock again
         // within seconds and re-show this same prompt indefinitely.
         uint8_t no_payload = 0;
-        {
-          std::lock_guard<std::mutex> lock(send_mutex_);
-          channel.send(kMsgGoAway, &no_payload, 0);
-        }
+        channel.send(kMsgGoAway, &no_payload, 0);
         close_socket(client);
         std::lock_guard<std::mutex> lock(status_mutex_);
         status_ = ConnectionInfo{};
@@ -267,24 +279,25 @@ void TcpServer::run() {
       status_.audio_key = ik.keys.recv_key;  // the Slave-to-Master direction's key
     }
 
-    {
-      std::lock_guard<std::mutex> lock(send_mutex_);
-      active_channel_ = &channel;
-    }
+    // From here until the writer is joined below, only the writer thread
+    // calls channel.send(): SecureChannel::send() is not thread-safe (its
+    // nonce counter is plain state, and a frame is not one atomic write).
+    // Everything else, this thread's own heartbeats included, goes through
+    // outgoing_, so no sender ever blocks on the socket.
+    send_failed_.store(false);
+    outgoing_.open();
     {
       const auto payload = encode_audio_port(audio_port_);
-      // send_mutex_ guards every call to channel.send() from here on, this
-      // thread's own included -- not just send_input()'s. SecureChannel::
-      // send() isn't internally thread-safe (send_nonce_ isn't atomic, and
-      // it does two separate socket writes for one frame), so without this
-      // any send_input() call racing one of this thread's own sends
-      // (heartbeat, go-away, ...) could interleave two frames on the wire
-      // and desync the stream for good -- rare with tiny input messages,
-      // but a real risk once messages get big enough (clipboard) to widen
-      // the race window.
-      std::lock_guard<std::mutex> lock(send_mutex_);
-      channel.send(kMsgAudioPort, payload.data(), payload.size());
+      outgoing_.push(kMsgAudioPort, payload.data(), payload.size());
     }
+    std::thread writer([this, &channel] {
+      while (std::optional<OutgoingMessage> msg = outgoing_.pop()) {
+        if (!channel.send(msg->type, msg->payload.data(), msg->payload.size())) {
+          send_failed_.store(true);
+          return;
+        }
+      }
+    });
     disconnect_requested_ = false;
     // Both count as "the peer is still there": Ok is an understood message,
     // Error is still bytes actually arriving (just malformed/undecryptable)
@@ -298,7 +311,7 @@ void TcpServer::run() {
     uint32_t next_ping_seq = 0;
     std::optional<uint32_t> ping_in_flight_seq;
     std::chrono::steady_clock::time_point ping_sent_at;
-    while (running_.load() && !disconnect_requested_.load()) {
+    while (running_.load() && !disconnect_requested_.load() && !send_failed_.load()) {
       uint8_t msg_type;
       std::vector<uint8_t> payload;
       const auto result =
@@ -326,8 +339,7 @@ void TcpServer::run() {
           uint32_t seq;
           if (decode_ping_seq(payload.data(), payload.size(), seq)) {
             const std::vector<uint8_t> pong_payload = encode_ping_seq(seq);
-            std::lock_guard<std::mutex> lock(send_mutex_);
-            channel.send(kMsgPong, pong_payload.data(), pong_payload.size());
+            send_input(kMsgPong, pong_payload.data(), pong_payload.size());
           }
         } else if (msg_type == kMsgPong) {
           uint32_t seq;
@@ -360,8 +372,7 @@ void TcpServer::run() {
       if (now - last_heard >= heartbeat_timeout) break;  // silent peer -- same as a closed connection
       if (now - last_heartbeat_sent >= kHeartbeatInterval) {
         uint8_t no_payload = 0;
-        std::lock_guard<std::mutex> lock(send_mutex_);
-        channel.send(kMsgHeartbeat, &no_payload, 0);
+        send_input(kMsgHeartbeat, &no_payload, 0);
         last_heartbeat_sent = now;
       }
       // Abandon a probe nothing has answered in too long, so one lost pong
@@ -374,10 +385,7 @@ void TcpServer::run() {
       // instead of a new seq racing ahead of the reply to the previous one.
       if (!ping_in_flight_seq && now - last_ping_sent >= kHeartbeatInterval) {
         const std::vector<uint8_t> ping_payload = encode_ping_seq(next_ping_seq);
-        {
-          std::lock_guard<std::mutex> lock(send_mutex_);
-          channel.send(kMsgPing, ping_payload.data(), ping_payload.size());
-        }
+        send_input(kMsgPing, ping_payload.data(), ping_payload.size());
         ping_in_flight_seq = next_ping_seq;
         ping_sent_at = now;
         ++next_ping_seq;
@@ -389,19 +397,16 @@ void TcpServer::run() {
     // this device -- a heartbeat timeout or the peer just closing its own
     // socket means the link died or Slave left on its own, neither of
     // which should require re-approval next time.
+    // A writer stuck on a stalled peer returns once the send timeout set at
+    // accept() expires.
+    outgoing_.close();
+    writer.join();
     if (disconnect_requested_.load()) {
       uint8_t no_payload = 0;
-      {
-        std::lock_guard<std::mutex> lock(send_mutex_);
-        channel.send(kMsgGoAway, &no_payload, 0);
-      }
+      if (!send_failed_.load()) channel.send(kMsgGoAway, &no_payload, 0);
       kicked_this_session_.insert(peer_device_id);
     }
 
-    {
-      std::lock_guard<std::mutex> lock(send_mutex_);
-      active_channel_ = nullptr;
-    }
     close_socket(client);
     std::lock_guard<std::mutex> lock(status_mutex_);
     status_ = ConnectionInfo{};

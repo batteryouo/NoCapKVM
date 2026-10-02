@@ -49,3 +49,7 @@ add_test(NAME test_audio_loss_window COMMAND test_audio_loss_window)
 add_executable(test_buffer_depth_window test_buffer_depth_window.cpp)
 target_include_directories(test_buffer_depth_window PRIVATE ${CMAKE_SOURCE_DIR}/src/app)
 add_test(NAME test_buffer_depth_window COMMAND test_buffer_depth_window)
+
+add_executable(test_tcp_session test_tcp_session.cpp)
+target_link_libraries(test_tcp_session PRIVATE nockvm_discovery)
+add_test(NAME test_tcp_session COMMAND test_tcp_session)

@@ -54,15 +54,17 @@ bool SecureChannel::send(uint8_t msg_type, const uint8_t* payload, size_t len) {
       aead_encrypt(keys_.send_key, send_nonce_, nullptr, 0, plaintext.data(), plaintext.size());
   send_nonce_++;
 
+  // One write per frame: with TCP_NODELAY, a separate write for the length
+  // prefix would go out as its own packet.
   const uint32_t ct_len = static_cast<uint32_t>(ciphertext.size());
-  uint8_t len_buf[4] = {
-      static_cast<uint8_t>(ct_len >> 24),
-      static_cast<uint8_t>(ct_len >> 16),
-      static_cast<uint8_t>(ct_len >> 8),
-      static_cast<uint8_t>(ct_len),
-  };
-
-  return send_all(sock_, len_buf, sizeof(len_buf)) && send_all(sock_, ciphertext.data(), ciphertext.size());
+  std::vector<uint8_t> frame;
+  frame.reserve(4 + ciphertext.size());
+  frame.push_back(static_cast<uint8_t>(ct_len >> 24));
+  frame.push_back(static_cast<uint8_t>(ct_len >> 16));
+  frame.push_back(static_cast<uint8_t>(ct_len >> 8));
+  frame.push_back(static_cast<uint8_t>(ct_len));
+  frame.insert(frame.end(), ciphertext.begin(), ciphertext.end());
+  return send_all(sock_, frame.data(), frame.size());
 }
 
 SecureChannel::RecvResult SecureChannel::receive(uint8_t& msg_type, std::vector<uint8_t>& payload,

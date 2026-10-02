@@ -9,11 +9,10 @@
 #include "nockvm/discovery/connection_types.h"
 #include "nockvm/discovery/known_peers.h"
 #include "nockvm/discovery/noise_primitives.h"
+#include "nockvm/discovery/outgoing_queue.h"
 #include "nockvm/discovery/platform_socket.h"
 
 namespace nockvm::discovery {
-
-class SecureChannel;
 
 enum class PairingDecision : uint8_t { Pending, Approved, Rejected };
 
@@ -66,14 +65,16 @@ public:
   // (checked once per receive-loop iteration), not just future ones.
   void set_heartbeat_timeout(std::chrono::milliseconds timeout);
 
-  // Called from the UI/input thread to send a message on the active
-  // connection (e.g. input events). No-ops (returns false) if there is no
-  // connection currently in the Connected state. Safe to call concurrently
-  // with the background thread's own receive() loop — send/receive use
-  // independent SecureChannel nonce counters, and this is the only caller
-  // of send(), so there is no send/send race to guard against beyond
-  // send_mutex_ serializing this method against itself.
+  // Queues a message for the active connection's writer thread, in order
+  // with every other send_input() message, and returns without waiting for
+  // the network. Returns false if there is no Connected session, or if the
+  // backlog overflowed (which also drops the connection). Thread-safe.
   bool send_input(uint8_t msg_type, const uint8_t* payload, size_t len);
+
+  // Like send_input(), for large payloads (clipboard): sent only when no
+  // send_input() message is waiting, and replaced if a newer one is queued
+  // before it starts sending.
+  bool send_bulk(uint8_t msg_type, const uint8_t* payload, size_t len);
 
   // Called once per frame from clipboard_pump.cpp. Returns true and moves
   // the pending message into `out` if one arrived since the last call --
@@ -85,6 +86,7 @@ public:
 
 private:
   void run();
+  bool queue_result(OutgoingQueue::PushResult result);
 
   uint64_t own_device_id_;
   Keypair own_static_;
@@ -107,8 +109,8 @@ private:
   std::thread thread_;
   mutable std::mutex status_mutex_;
   ConnectionInfo status_;
-  mutable std::mutex send_mutex_;
-  SecureChannel* active_channel_ = nullptr;  // set while Connected, guarded by send_mutex_
+  OutgoingQueue outgoing_;  // open only while a session's writer thread runs
+  std::atomic<bool> send_failed_{false};
   mutable std::mutex clipboard_mutex_;
   std::optional<ClipboardMessage> pending_clipboard_;  // guarded by clipboard_mutex_
 };

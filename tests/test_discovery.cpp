@@ -1,8 +1,11 @@
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <thread>
 #include "nockvm/discovery/monitor_protocol.h"
+#include "nockvm/discovery/outgoing_queue.h"
 #include "nockvm/discovery/ping_protocol.h"
 #include "nockvm/discovery/protocol.h"
 #include "nockvm/discovery/user_settings.h"
@@ -237,6 +240,47 @@ int main() {
     const std::vector<uint8_t> encoded = encode_ping_seq(123);
     uint32_t seq = 0;
     assert(!decode_ping_seq(encoded.data(), encoded.size() - 1, seq));
+  }
+
+  // OutgoingQueue: refuses pushes until opened, sends ordered messages in
+  // order and ahead of bulk, keeps only the latest bulk message, and
+  // reports overflow without queuing.
+  {
+    OutgoingQueue q(/*max_ordered=*/2);
+    const uint8_t a = 1, b = 2, c = 3;
+    assert(q.push(10, &a, 1) == OutgoingQueue::PushResult::Closed);
+    q.open();
+    assert(q.push_bulk(50, &a, 1) == OutgoingQueue::PushResult::Ok);
+    assert(q.push_bulk(51, &b, 1) == OutgoingQueue::PushResult::Ok);
+    assert(q.push(10, &a, 1) == OutgoingQueue::PushResult::Ok);
+    assert(q.push(11, &b, 1) == OutgoingQueue::PushResult::Ok);
+    assert(q.push(12, &c, 1) == OutgoingQueue::PushResult::Overflow);
+    auto m = q.pop();
+    assert(m && m->type == 10 && m->payload == std::vector<uint8_t>{1});
+    m = q.pop();
+    assert(m && m->type == 11);
+    m = q.pop();
+    assert(m && m->type == 51 && m->payload == std::vector<uint8_t>{2});
+    // Reopening discards leftovers from the previous connection.
+    assert(q.push(13, &c, 1) == OutgoingQueue::PushResult::Ok);
+    q.open();
+    assert(q.push(14, &c, 1) == OutgoingQueue::PushResult::Ok);
+    m = q.pop();
+    assert(m && m->type == 14);
+  }
+
+  // OutgoingQueue: close() wakes a writer blocked in pop().
+  {
+    OutgoingQueue q;
+    q.open();
+    std::optional<OutgoingMessage> result{OutgoingMessage{}};
+    std::thread writer([&] { result = q.pop(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    q.close();
+    writer.join();
+    assert(!result.has_value());
+    const uint8_t a = 1;
+    assert(q.push(10, &a, 1) == OutgoingQueue::PushResult::Closed);
   }
 
   return 0;
