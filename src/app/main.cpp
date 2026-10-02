@@ -9,13 +9,11 @@
 #include "audio_pump.h"
 #include "auto_connect_pump.h"
 #include "clipboard_pump.h"
-#include "input_pump.h"
+#include "input_service.h"
 #include "nockvm/discovery/identity.h"
 #include "nockvm/discovery/user_settings.h"
 #include "nockvm/display/monitor_info.h"
-#include "nockvm/input/hook.h"
 #include "nockvm/input/inject.h"
-#include "nockvm/telemetry/counters.h"
 #include "nockvm/telemetry/telemetry.h"
 #include "nockvm/topology/crossing.h"
 #include "quit.h"
@@ -84,54 +82,19 @@ void destroy_window_icons() {
   g_small_window_icon = nullptr;
 }
 
-// Raw Input supplies unconstrained relative deltas while the input hook suppresses events.
-LRESULT CALLBACK raw_input_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-  if (msg == WM_INPUT) {
-    nockvm::telemetry::counters().raw_input_events.fetch_add(1, std::memory_order_relaxed);
-    // feed_raw_delta() below is a no-op unless input is currently
-    // suppressed (see hook.h) -- RIDEV_INPUTSINK still delivers WM_INPUT at
-    // full HID report rate the rest of the time (normally almost always,
-    // since suppression only happens while a Slave owns input), so paying
-    // for GetRawInputData's allocating query/copy then was pure waste with
-    // nothing to show for it. Skip the whole path when unsuppressed;
-    // raw_input_processed counts how often it actually runs, so comparing
-    // it against raw_input_events in the periodic summary shows how much
-    // of the incoming volume is genuinely processed versus cheaply skipped.
-    if (nockvm::input::is_suppressed()) {
-      nockvm::telemetry::counters().raw_input_processed.fetch_add(1, std::memory_order_relaxed);
-      UINT size = 0;
-      GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER));
-      if (size > 0) {
-        std::vector<BYTE> buffer(size);
-        if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam), RID_INPUT, buffer.data(), &size,
-                             sizeof(RAWINPUTHEADER)) == size) {
-          const auto* raw = reinterpret_cast<const RAWINPUT*>(buffer.data());
-          if (raw->header.dwType == RIM_TYPEMOUSE && !(raw->data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
-            nockvm::input::feed_raw_delta(raw->data.mouse.lLastX, raw->data.mouse.lLastY);
-          }
-        }
-      }
-    }
-  }
+// Routes tray-icon callbacks, which arrive as messages to the main window.
+LRESULT CALLBACK main_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   nockvm::app::tray_handle_message(hwnd, msg, wparam, lparam);
   return CallWindowProcW(g_original_wndproc, hwnd, msg, wparam, lparam);
 }
 
-void install_raw_input(GLFWwindow* window) {
+void install_window_proc(GLFWwindow* window) {
   const HWND hwnd = glfwGetWin32Window(window);
-
-  RAWINPUTDEVICE rid{};
-  rid.usUsagePage = 0x01;  // generic desktop
-  rid.usUsage = 0x02;      // mouse
-  rid.dwFlags = RIDEV_INPUTSINK;
-  rid.hwndTarget = hwnd;
-  RegisterRawInputDevices(&rid, 1, sizeof(rid));
-
   g_original_wndproc = reinterpret_cast<WNDPROC>(GetWindowLongPtrW(hwnd, GWLP_WNDPROC));
-  SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(raw_input_wndproc));
+  SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(main_window_proc));
 }
 
-void uninstall_raw_input(GLFWwindow* window) {
+void uninstall_window_proc(GLFWwindow* window) {
   if (!g_original_wndproc) return;
   const HWND hwnd = glfwGetWin32Window(window);
   SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(g_original_wndproc));
@@ -160,7 +123,7 @@ int main() {
   set_window_icon(window);
 
 #ifdef _WIN32
-  install_raw_input(window);
+  install_window_proc(window);
 #endif
   glfwSetWindowCloseCallback(window, window_close_callback);
   nockvm::app::install_tray(window);
@@ -195,10 +158,7 @@ int main() {
   // How long a hidden-window iteration may block in glfwWaitEventsTimeout()
   // before running the pumps below again on its own. Matches the ~60Hz
   // cadence a vsynced visible frame would normally run at, so audio/tray/
-  // clipboard pumping stays just as responsive while hidden -- any actual
-  // Windows message (including WH_MOUSE_LL/WH_KEYBOARD_LL hook delivery,
-  // which requires this thread to be pumping messages promptly) wakes the
-  // wait immediately regardless of this timeout.
+  // clipboard pumping stays just as responsive while hidden.
   constexpr double kHiddenLoopWaitSeconds = 1.0 / 60.0;
 
   using nockvm::telemetry::FrameSegment;
@@ -217,21 +177,15 @@ int main() {
       glfwPollEvents();
     } else {
       // A hidden window's glfwSwapBuffers() can be throttled by the OS/GPU
-      // driver for an unbounded and growing duration (present calls have no
-      // reason to hurry when nothing is being displayed), which would stall
-      // this thread's message pump and, with it, WH_MOUSE_LL/WH_KEYBOARD_LL
-      // hook delivery -- Windows only calls a low-level hook proc while its
-      // owning thread is promptly pumping messages, so a stalled pump here
-      // delays the physical mouse/keyboard system-wide, not just this app's
-      // own rendering. Skip rendering entirely while hidden (see below) and
-      // wait on the message queue instead of spinning, so this thread stays
-      // idle-but-responsive rather than either busy-looping or blocking in
-      // a throttled present call.
+      // driver (observed: ~94ms per call after a long idle), so skip
+      // rendering entirely while hidden (see below) and wait on the message
+      // queue instead. Input capture runs on its own thread (InputService)
+      // and does not depend on this loop's pace.
       glfwWaitEventsTimeout(kHiddenLoopWaitSeconds);
     }
     end_segment(FrameSegment::Events);
 
-    nockvm::app::pump_input(state);
+    nockvm::app::pump_input_service(state);
     end_segment(FrameSegment::Input);
     nockvm::app::pump_audio(state);
     end_segment(FrameSegment::Audio);
@@ -289,6 +243,8 @@ int main() {
   log_step("announcer.reset");
   state.listener.reset();
   log_step("listener.reset");
+  state.input_service.reset();
+  log_step("input_service.reset");
   state.tcp_server.reset();
   log_step("tcp_server.reset");
   state.tcp_client.reset();
@@ -302,8 +258,8 @@ int main() {
   log_step("ImGui::DestroyContext");
 
 #ifdef _WIN32
-  uninstall_raw_input(window);
-  log_step("uninstall_raw_input");
+  uninstall_window_proc(window);
+  log_step("uninstall_window_proc");
 #endif
   nockvm::app::uninstall_tray();
   log_step("uninstall_tray");

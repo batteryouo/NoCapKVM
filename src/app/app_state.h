@@ -16,22 +16,15 @@
 #include "nockvm/discovery/tcp_server.h"
 #include "nockvm/discovery/types.h"
 #include "nockvm/display/monitor_info.h"
-#include "nockvm/input/hook.h"
 #include "nockvm/topology/arrangement.h"
 #include "audio_loss_window.h"
 #include "buffer_depth_window.h"
+#include "input_service.h"
 #include "retry_backoff.h"
 
 namespace nockvm::app {
 
 enum class Screen { RoleSelect, Discovery, ManageDevices, Arrangement };
-
-// A currently held key, including the data needed to release it remotely.
-struct HeldKey {
-  uint32_t vk = 0;
-  uint32_t scancode = 0;
-  bool extended = false;
-};
 
 struct AppState {
   Screen screen = Screen::RoleSelect;
@@ -53,15 +46,10 @@ struct AppState {
   // Masters not eligible for automatic reconnection in this session.
   std::unordered_set<uint64_t> auto_connect_suppressed;
 
-  // Master-side input capture and handoff state.
-  input::InputHook input_hook;
-  bool input_hook_active = false;
-  bool input_owned_by_master = true;
-  int32_t input_logical_x = 0, input_logical_y = 0;
-  // Suppresses boundary detection for the frame after a handoff.
-  bool input_just_handed_off = false;
-  // Keys held on the current input owner.
-  std::vector<HeldKey> input_held_keys;
+  // Master only: captures and forwards input for tcp_server on its own
+  // thread. Holds a reference to tcp_server, so it must be reset before
+  // tcp_server is.
+  std::unique_ptr<InputService> input_service;
 
   // Slave-to-Master audio state.
   bool audio_active = false;

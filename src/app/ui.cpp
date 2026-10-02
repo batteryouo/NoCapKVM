@@ -292,11 +292,12 @@ void draw_connection_tab(AppState& state) {
     } else if (info.state == discovery::ConnectionState::Connected) {
       ImGui::Text("Connected: %s", resolve_peer_name(state, info.peer_device_id, info.peer_ip).c_str());
       if (ImGui::Button("Disconnect")) state.tcp_server->disconnect_current();
-      ImGui::Text("Input control: %s", state.input_owned_by_master ? "Master" : "Slave");
+      const InputStatus input = state.input_service ? state.input_service->status() : InputStatus{};
+      ImGui::Text("Input control: %s", input.owned_by_master ? "Master" : "Slave");
       ImGui::TextUnformatted("(Ctrl+Alt+Shift+Esc forces control back to Master)");
       {
         std::string held;
-        for (const HeldKey& k : state.input_held_keys) {
+        for (const HeldKey& k : input.held_keys) {
           if (!held.empty()) held += " + ";
           held += vk_name(k.vk);
         }
@@ -494,6 +495,7 @@ void draw_discovery(AppState& state) {
   if (ImGui::Button("Back")) {
     state.announcer.reset();
     state.listener.reset();
+    state.input_service.reset();
     state.tcp_server.reset();
     state.tcp_client.reset();
     state.screen = Screen::RoleSelect;

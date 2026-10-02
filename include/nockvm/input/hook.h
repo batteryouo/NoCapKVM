@@ -25,12 +25,12 @@ struct InputFrame {
 };
 
 // Windows-only global mouse/keyboard capture via WH_MOUSE_LL/WH_KEYBOARD_LL.
-// install() must be called from a thread with an active Windows message
-// pump (the main thread's glfwPollEvents() already provides this every
-// frame), since low-level hook callbacks run on that thread. poll() must be
-// called from that same thread, once per frame, right after
-// glfwPollEvents() — the hook callbacks and poll() are then strictly
-// sequential on one thread, so no internal locking is needed.
+// install() must be called from a thread that keeps pumping Windows
+// messages promptly, since low-level hook callbacks run on that thread and
+// every system-wide input event waits for them. Every other member, and
+// feed_raw_delta()/is_suppressed() below, must be called from that same
+// thread -- the hook callbacks and poll() are then strictly sequential, so
+// no internal locking is needed.
 //
 // On non-Windows builds this is an inert stub: install() returns false,
 // poll() always returns an empty frame.
@@ -82,14 +82,14 @@ private:
 // Feeds a Windows Raw Input relative mouse delta (WM_INPUT/RAWMOUSE) into
 // the live InputHook instance's pending frame, but only while it's
 // suppressed — unsuppressed tracking already comes from WH_MOUSE_LL's own
-// pt field. The caller (main.cpp) is responsible for registering for and
+// pt field. The caller (the input thread's WM_INPUT handler) is responsible for registering for and
 // dispatching WM_INPUT; this just routes the resulting delta. No-op on
 // non-Windows builds and when no InputHook is currently installed.
 void feed_raw_delta(int32_t dx, int32_t dy);
 
 // Whether the currently-installed InputHook (if any) is suppressed —
 // i.e. feed_raw_delta() above would actually do something. Lets a WM_INPUT
-// handler (main.cpp's raw_input_wndproc) skip its own, more expensive
+// handler skip its own, more expensive
 // per-event work entirely when the answer is no, rather than paying for it
 // on every mouse-report-rate event just to feed a delta nothing reads.
 // False on non-Windows builds and when no InputHook is currently installed.

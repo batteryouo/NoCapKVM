@@ -12,9 +12,8 @@ namespace nockvm::telemetry {
 // lock-free atomic operation -- no formatting, no I/O, no allocation.
 struct Counters {
   std::atomic<uint64_t> raw_input_events{0};
-  // Count of raw-input events that actually ran the allocating processing
-  // path (only needed while input is suppressed) -- see
-  // main.cpp's raw_input_wndproc.
+  // Count of raw-input events that actually ran the processing path (only
+  // needed while input is suppressed) -- see input_service.cpp.
   std::atomic<uint64_t> raw_input_processed{0};
 
   std::atomic<uint64_t> audio_packets_received{0};

@@ -61,7 +61,7 @@ void uninstall_tray() {
 }
 
 // Windows tray events arrive through the window's own message pump
-// (tray_handle_message, called from raw_input_wndproc in main.cpp) --
+// (tray_handle_message, called from main_window_proc in main.cpp) --
 // nothing to poll here.
 void pump_tray() {}
 

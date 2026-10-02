@@ -28,7 +28,7 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 target_link_libraries(imgui PUBLIC glfw)
 
-set(NOCKVM_APP_COMMON_SOURCES main.cpp ui.cpp input_pump.cpp audio_pump.cpp auto_connect_pump.cpp quit.cpp clipboard_pump.cpp telemetry_pump.cpp)
+set(NOCKVM_APP_COMMON_SOURCES main.cpp ui.cpp input_pump.cpp input_service.cpp audio_pump.cpp auto_connect_pump.cpp quit.cpp clipboard_pump.cpp telemetry_pump.cpp)
 
 if(WIN32)
   # WIN32 flag drops the console subsystem so the app runs windowed-only;
