@@ -35,7 +35,7 @@ bool escape_combo_held(const InputSession& s) {
   return ctrl && alt && shift && esc;
 }
 #else
-bool escape_combo_held(const AppState&) { return false; }
+bool escape_combo_held(const InputSession&) { return false; }
 #endif
 
 uint8_t current_modifier_mask() {
