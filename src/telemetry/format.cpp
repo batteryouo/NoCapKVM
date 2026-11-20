@@ -1,4 +1,5 @@
 #include "nockvm/telemetry/format.h"
+#include <cmath>
 #include <cstdio>
 #include <ctime>
 
@@ -33,6 +34,13 @@ const char* frame_segment_name(FrameSegment segment) {
   return "unknown";
 }
 
+std::string format_dbfs(uint32_t ppm) {
+  if (ppm == 0) return "-inf";
+  char buf[16];
+  std::snprintf(buf, sizeof(buf), "%.1f", 20.0 * std::log10(static_cast<double>(ppm) / 1e6));
+  return buf;
+}
+
 std::string format_periodic_summary(const PeriodicSummary& s) {
   char buf[1024];
   std::snprintf(buf, sizeof(buf),
@@ -58,6 +66,8 @@ std::string format_periodic_summary(const PeriodicSummary& s) {
                 s.hook_lag_max_ms, static_cast<unsigned long long>(s.hook_lag_slow), s.connected ? "true" : "false",
                 s.role.c_str(), s.connection_state.c_str());
   std::string line = buf;
+  line += " audio_peak_dbfs=capture:" + format_dbfs(s.audio_capture_peak_ppm) +
+          ",rx:" + format_dbfs(s.audio_rx_peak_ppm) + ",play:" + format_dbfs(s.audio_play_peak_ppm);
   line += " seg_max_ms=";
   for (size_t i = 0; i < kFrameSegmentCount; ++i) {
     char seg[48];

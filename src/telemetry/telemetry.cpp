@@ -83,6 +83,9 @@ void tick(double frame_time_ms, const FrameContext& ctx) {
   const uint64_t hook_events = c.hook_events.load(std::memory_order_relaxed);
   const uint64_t hook_lag_slow = c.hook_lag_slow.load(std::memory_order_relaxed);
   const uint32_t hook_lag_max_ms = c.hook_lag_max_ms.exchange(0, std::memory_order_relaxed);
+  const uint32_t audio_capture_peak = c.audio_capture_peak_ppm.exchange(0, std::memory_order_relaxed);
+  const uint32_t audio_rx_peak = c.audio_rx_peak_ppm.exchange(0, std::memory_order_relaxed);
+  const uint32_t audio_play_peak = c.audio_play_peak_ppm.exchange(0, std::memory_order_relaxed);
 
   const uint64_t underrun_delta = audio_underruns - g_prev_audio_underruns;
   const GenerationCounter current_jitter_cap{ctx.audio_playback_generation, ctx.audio_jitter_cap_episodes};
@@ -108,6 +111,9 @@ void tick(double frame_time_ms, const FrameContext& ctx) {
   s.audio_packets_dropped = audio_dropped;
   s.audio_underruns = audio_underruns;
   s.audio_slave_start_failures = audio_slave_start_failures;
+  s.audio_capture_peak_ppm = audio_capture_peak;
+  s.audio_rx_peak_ppm = audio_rx_peak;
+  s.audio_play_peak_ppm = audio_play_peak;
   s.raw_input_pps =
       interval_s > 0 ? static_cast<double>(raw_input_events - g_prev_raw_input_events) / interval_s : 0.0;
   s.raw_input_events = raw_input_events;

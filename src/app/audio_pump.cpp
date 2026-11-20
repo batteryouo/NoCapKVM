@@ -2,6 +2,7 @@
 #include <chrono>
 #include <string>
 #include "nockvm/audio/format.h"
+#include "nockvm/audio/level.h"
 #include "nockvm/audio/protocol.h"
 #include "nockvm/discovery/audio_port_protocol.h"
 #include "nockvm/discovery/connection_types.h"
@@ -130,6 +131,7 @@ void pump_master(AppState& state) {
     } else {
       telemetry::log_event(format_changed ? "audio.master_restarted" : "audio.master_started",
                             "format=" + format_desc(peer_format));
+      telemetry::log_event("audio.master_device", state.audio_playback->description());
     }
     state.audio_master_active_format = peer_format;
 
@@ -153,6 +155,8 @@ void pump_master(AppState& state) {
   std::vector<uint8_t> data;
   while (state.audio_recv_channel->receive_nonblocking(seq, data)) {
     telemetry::counters().audio_packets_decoded.fetch_add(1, std::memory_order_relaxed);
+    telemetry::record_peak(telemetry::counters().audio_rx_peak_ppm,
+                           audio::peak_ppm(data.data(), data.size(), state.audio_master_active_format.bit_depth));
     state.audio_playback->push_frame(seq, std::move(data));
   }
 }
@@ -283,6 +287,7 @@ void pump_slave(AppState& state) {
   state.audio_slave_start_backoff.on_success();
   telemetry::log_event(format_changed ? "audio.slave_restarted" : "audio.slave_started",
                         "format=" + format_desc(state.audio_desired_format));
+  telemetry::log_event("audio.slave_device", state.audio_capture->description());
   state.audio_active_format = state.audio_desired_format;
   state.audio_active = true;
 }

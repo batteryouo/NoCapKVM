@@ -3,7 +3,10 @@
 #include <cctype>
 #include <string>
 #include <miniaudio.h>
+#include "device_info.h"
+#include "nockvm/audio/level.h"
 #include "nockvm/audio/packet_chunker.h"
+#include "nockvm/telemetry/counters.h"
 
 namespace nockvm::audio {
 namespace {
@@ -22,6 +25,9 @@ ma_format to_ma_format(uint8_t bit_depth) { return bit_depth == 8 ? ma_format_u8
 void data_callback(ma_device* device, void* /*output*/, const void* input, ma_uint32 frame_count) {
   auto* impl = static_cast<CaptureImpl*>(device->pUserData);
   const size_t bytes = static_cast<size_t>(frame_count) * ma_get_bytes_per_frame(device->capture.format, device->capture.channels);
+  const uint8_t bit_depth = device->capture.format == ma_format_u8 ? 8 : 16;
+  telemetry::record_peak(telemetry::counters().audio_capture_peak_ppm,
+                         peak_ppm(static_cast<const uint8_t*>(input), bytes, bit_depth));
   impl->chunker.feed(static_cast<const uint8_t*>(input), bytes,
                      [impl](const uint8_t* packet, size_t len) { impl->on_frame(packet, len); });
 }
@@ -90,6 +96,7 @@ bool AudioCapture::start(const AudioFormat& format, std::function<void(const uin
     return false;
   }
 
+  description_ = describe_device(impl->context, impl->device);
   device_ = impl;
   return true;
 }

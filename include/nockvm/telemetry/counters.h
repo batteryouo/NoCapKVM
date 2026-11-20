@@ -24,6 +24,12 @@ struct Counters {
   // Count of Slave AudioCapture::start() failures -- see
   // audio_pump.cpp's pump_slave().
   std::atomic<uint64_t> audio_slave_start_failures{0};
+  // Largest sample magnitude since the last periodic report, in ppm of full
+  // scale, at each stage of the path: Slave capture, Master receive (after
+  // decryption), Master playback output. The reporter resets them.
+  std::atomic<uint32_t> audio_capture_peak_ppm{0};
+  std::atomic<uint32_t> audio_rx_peak_ppm{0};
+  std::atomic<uint32_t> audio_play_peak_ppm{0};
 
   std::atomic<uint64_t> clipboard_sent{0};
   std::atomic<uint64_t> clipboard_received{0};
@@ -44,5 +50,8 @@ constexpr uint32_t kHookLagSlowMs = 50;
 // being timestamped by the OS and reaching the hook callback. Safe to call
 // from the hook callback itself.
 void record_hook_lag(uint32_t lag_ms);
+
+// Raises slot to ppm if ppm is larger. For the audio_*_peak_ppm counters.
+void record_peak(std::atomic<uint32_t>& slot, uint32_t ppm);
 
 }  // namespace nockvm::telemetry

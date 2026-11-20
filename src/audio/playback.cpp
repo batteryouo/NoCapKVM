@@ -1,6 +1,8 @@
 #include "nockvm/audio/playback.h"
 #include <algorithm>
 #include <miniaudio.h>
+#include "device_info.h"
+#include "nockvm/audio/level.h"
 #include "nockvm/telemetry/counters.h"
 
 namespace nockvm::audio {
@@ -36,8 +38,9 @@ struct PlaybackImpl {
 void data_callback(ma_device* device, void* output, const void* /*input*/, ma_uint32 frame_count) {
   auto* impl = static_cast<PlaybackImpl*>(device->pUserData);
   auto* out = static_cast<uint8_t*>(output);
-  size_t remaining =
+  const size_t total =
       static_cast<size_t>(frame_count) * ma_get_bytes_per_frame(device->playback.format, device->playback.channels);
+  size_t remaining = total;
 
   // Pull as many packets as this callback needs, keeping the remainder of
   // the last one for the next callback. The previous version popped exactly
@@ -69,6 +72,9 @@ void data_callback(ma_device* device, void* output, const void* /*input*/, ma_ui
     // reads and reports this count, never this thread.
     telemetry::counters().audio_underruns.fetch_add(1, std::memory_order_relaxed);
   }
+  const uint8_t bit_depth = device->playback.format == ma_format_u8 ? 8 : 16;
+  telemetry::record_peak(telemetry::counters().audio_play_peak_ppm,
+                         peak_ppm(static_cast<const uint8_t*>(output), total, bit_depth));
 }
 
 }  // namespace
@@ -108,6 +114,7 @@ bool AudioPlayback::start(const AudioFormat& format) {
     return false;
   }
 
+  description_ = describe_device(impl->context, impl->device);
   device_ = impl;
   return true;
 }

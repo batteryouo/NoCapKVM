@@ -2,6 +2,7 @@
 #include <vector>
 #include "nockvm/audio/format.h"
 #include "nockvm/audio/jitter_buffer.h"
+#include "nockvm/audio/level.h"
 #include "nockvm/audio/packet_chunker.h"
 #include "nockvm/telemetry/counters.h"
 
@@ -307,6 +308,25 @@ int main() {
     bool emitted = false;
     chunker.feed(data, sizeof(data), [&](const uint8_t*, size_t) { emitted = true; });
     assert(!emitted && chunker.pending_bytes() == 0);
+  }
+
+  // peak_ppm: silence is 0 for both depths (8-bit silence is the 0x80
+  // midpoint, not 0x00), full scale is 1000000, and 16-bit samples are
+  // read little-endian and signed.
+  {
+    const uint8_t silent8[] = {0x80, 0x80, 0x80};
+    assert(peak_ppm(silent8, sizeof(silent8), 8) == 0);
+    const uint8_t full8[] = {0x80, 0x00, 0x80};
+    assert(peak_ppm(full8, sizeof(full8), 8) == 1000000);
+
+    const uint8_t silent16[] = {0, 0, 0, 0};
+    assert(peak_ppm(silent16, sizeof(silent16), 16) == 0);
+    const uint8_t full16[] = {0x00, 0x80, 0x01, 0x00};  // -32768, then 1
+    assert(peak_ppm(full16, sizeof(full16), 16) == 1000000);
+    const uint8_t half16[] = {0x00, 0x40};  // 16384
+    assert(peak_ppm(half16, sizeof(half16), 16) == 500000);
+
+    assert(peak_ppm(full16, sizeof(full16), 24) == 0);
   }
 
   return 0;

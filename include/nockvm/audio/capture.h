@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <functional>
+#include <string>
 #include "nockvm/audio/format.h"
 
 namespace nockvm::audio {
@@ -23,8 +24,12 @@ public:
   bool start(const AudioFormat& format, std::function<void(const uint8_t* data, size_t len)> on_frame);
   void stop();
 
+  // Backend, device and negotiated format of the last successful start(), for logging.
+  const std::string& description() const { return description_; }
+
 private:
   void* device_ = nullptr;  // ma_device*, opaque here to keep miniaudio out of this header
+  std::string description_;
 };
 
 }  // namespace nockvm::audio

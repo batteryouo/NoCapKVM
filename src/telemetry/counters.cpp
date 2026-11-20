@@ -16,4 +16,10 @@ void record_hook_lag(uint32_t lag_ms) {
   }
 }
 
+void record_peak(std::atomic<uint32_t>& slot, uint32_t ppm) {
+  uint32_t prev = slot.load(std::memory_order_relaxed);
+  while (ppm > prev && !slot.compare_exchange_weak(prev, ppm, std::memory_order_relaxed)) {
+  }
+}
+
 }  // namespace nockvm::telemetry

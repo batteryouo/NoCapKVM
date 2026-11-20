@@ -35,6 +35,10 @@ struct PeriodicSummary {
   uint64_t audio_packets_dropped = 0;
   uint64_t audio_underruns = 0;
   uint64_t audio_slave_start_failures = 0;
+  // Interval peaks in ppm of full scale; printed as dBFS ("-inf" for silence).
+  uint32_t audio_capture_peak_ppm = 0;
+  uint32_t audio_rx_peak_ppm = 0;
+  uint32_t audio_play_peak_ppm = 0;
   double raw_input_pps = 0.0;
   uint64_t raw_input_events = 0;
   uint64_t raw_input_processed = 0;
@@ -55,6 +59,9 @@ struct PeriodicSummary {
 // format_timestamp()) so the log stays greppable/parseable without a
 // custom tool.
 std::string format_periodic_summary(const PeriodicSummary& s);
+
+// A ppm-of-full-scale level as dBFS with one decimal, or "-inf" for zero.
+std::string format_dbfs(uint32_t ppm);
 
 // key="message"-shaped event line; message is double-quote/backslash
 // escaped so a message containing either can't break parsing.

@@ -149,8 +149,12 @@ int main() {
     s.connected = true;
     s.connection_state = "connected";
     s.role = "master";
+    s.audio_capture_peak_ppm = 500000;
+    s.audio_rx_peak_ppm = 1000000;
+    s.audio_play_peak_ppm = 0;
 
     const std::string line = format_periodic_summary(s);
+    assert(line.find("audio_peak_dbfs=capture:-6.0,rx:0.0,play:-inf") != std::string::npos);
     assert(line.find("uptime_s=7200") != std::string::npos);
     assert(line.find("cpu_pct=12.4") != std::string::npos);
     assert(line.find("working_set_mib=118") != std::string::npos);
@@ -241,6 +245,15 @@ int main() {
     assert(c.hook_events.load() == 4);
     assert(c.hook_lag_slow.load() == 2);
     assert(c.hook_lag_max_ms.load() == 120);
+  }
+
+  // record_peak keeps the largest value seen and never lowers it.
+  {
+    std::atomic<uint32_t> slot{0};
+    record_peak(slot, 300);
+    record_peak(slot, 900);
+    record_peak(slot, 100);
+    assert(slot.load() == 900);
   }
 
   return 0;
