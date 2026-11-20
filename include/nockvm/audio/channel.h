@@ -22,10 +22,9 @@ public:
 
   bool send_to(const sockaddr_in& dest, const uint8_t* data, size_t len);
 
-  // Non-blocking. False if nothing is available right now, or if the
-  // packet failed to decode (malformed, wrong key, or a genuine AEAD
-  // authentication failure) -- deliberately not distinguished, since
-  // either way there's nothing usable to hand back.
+  // Non-blocking. Returns the next packet that decodes, skipping (and
+  // counting as rejected) any that are oversized, malformed, or fail AEAD
+  // authentication. False once nothing usable is waiting.
   bool receive_nonblocking(uint32_t& seq, std::vector<uint8_t>& data_out);
 
 private:

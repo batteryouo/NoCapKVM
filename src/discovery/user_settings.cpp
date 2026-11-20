@@ -12,17 +12,12 @@ constexpr int kMaxConnectionTimeoutSeconds = 3600;
 
 std::filesystem::path store_path() { return config_dir() / "user_settings"; }
 
-bool valid_format(const audio::AudioFormat& format) {
-  return (format.sample_rate == 24000 || format.sample_rate == 48000) &&
-         (format.bit_depth == 8 || format.bit_depth == 16);
-}
-
 void read_format(std::ifstream& in, audio::AudioFormat& format) {
   uint32_t sample_rate = 0;
   unsigned int bit_depth = 0;
   if (!(in >> sample_rate >> bit_depth)) return;
   const audio::AudioFormat candidate{sample_rate, static_cast<uint8_t>(bit_depth)};
-  if (valid_format(candidate)) format = candidate;
+  if (candidate.is_supported()) format = candidate;
 }
 
 }  // namespace

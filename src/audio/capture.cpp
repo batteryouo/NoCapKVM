@@ -3,15 +3,18 @@
 #include <cctype>
 #include <string>
 #include <miniaudio.h>
+#include "nockvm/audio/packet_chunker.h"
 
 namespace nockvm::audio {
 namespace {
 
 // The context and device share a lifetime.
 struct CaptureImpl {
-  ma_context context;
-  ma_device device;
+  explicit CaptureImpl(size_t packet_bytes) : chunker(packet_bytes) {}
+  ma_context context{};
+  ma_device device{};
   std::function<void(const uint8_t*, size_t)> on_frame;
+  PacketChunker chunker;  // touched only from the device's data callback
 };
 
 ma_format to_ma_format(uint8_t bit_depth) { return bit_depth == 8 ? ma_format_u8 : ma_format_s16; }
@@ -19,7 +22,8 @@ ma_format to_ma_format(uint8_t bit_depth) { return bit_depth == 8 ? ma_format_u8
 void data_callback(ma_device* device, void* /*output*/, const void* input, ma_uint32 frame_count) {
   auto* impl = static_cast<CaptureImpl*>(device->pUserData);
   const size_t bytes = static_cast<size_t>(frame_count) * ma_get_bytes_per_frame(device->capture.format, device->capture.channels);
-  impl->on_frame(static_cast<const uint8_t*>(input), bytes);
+  impl->chunker.feed(static_cast<const uint8_t*>(input), bytes,
+                     [impl](const uint8_t* packet, size_t len) { impl->on_frame(packet, len); });
 }
 
 #ifdef _WIN32
@@ -53,7 +57,8 @@ AudioCapture::AudioCapture() = default;
 AudioCapture::~AudioCapture() { stop(); }
 
 bool AudioCapture::start(const AudioFormat& format, std::function<void(const uint8_t*, size_t)> on_frame) {
-  auto* impl = new CaptureImpl();
+  if (!format.is_supported()) return false;
+  auto* impl = new CaptureImpl(format.bytes_per_packet());
   impl->on_frame = std::move(on_frame);
 
   if (ma_context_init(nullptr, 0, nullptr, &impl->context) != MA_SUCCESS) {

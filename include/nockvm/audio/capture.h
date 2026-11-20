@@ -6,8 +6,9 @@
 namespace nockvm::audio {
 
 // Captures this machine's own system audio output (loopback) in the given
-// format and invokes on_frame with each chunk of raw interleaved PCM
-// bytes. On Windows this is WASAPI's native loopback mode; on Linux
+// format and invokes on_frame, on the audio thread, with raw interleaved PCM
+// in packets of exactly format.bytes_per_packet() bytes, however many frames
+// the backend delivers per callback. On Windows this is WASAPI's native loopback mode; on Linux
 // there's no equivalent flag, so start() enumerates devices and picks the
 // capture device matching the current default sink's monitor (the
 // PulseAudio/PipeWire convention) -- unverified against a real desktop

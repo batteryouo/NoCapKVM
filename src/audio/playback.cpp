@@ -77,6 +77,7 @@ AudioPlayback::AudioPlayback() : buffer_(std::make_unique<JitterBuffer>(kTargetD
 AudioPlayback::~AudioPlayback() { stop(); }
 
 bool AudioPlayback::start(const AudioFormat& format) {
+  if (!format.is_supported()) return false;
   auto* impl = new PlaybackImpl();
   impl->buffer = buffer_.get();
   impl->silence_byte = format.bit_depth == 8 ? 0x80 : 0x00;

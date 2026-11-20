@@ -1,5 +1,8 @@
 #include <cassert>
+#include <vector>
+#include "nockvm/audio/format.h"
 #include "nockvm/audio/jitter_buffer.h"
+#include "nockvm/audio/packet_chunker.h"
 #include "nockvm/telemetry/counters.h"
 
 using namespace nockvm::audio;
@@ -237,6 +240,73 @@ int main() {
     buf.push(0, {200});              // too late, dropped by push()
     assert(!buf.pop().has_value());  // seq 1 still never arrived -> miss
     assert(buf.playout_misses() == 1);
+  }
+
+  // Callbacks larger than a packet are split, and the remainder joins the
+  // next callback's bytes, so every packet has the same size and the stream
+  // is preserved byte for byte.
+  {
+    PacketChunker chunker(4);
+    std::vector<uint8_t> input(10);
+    for (size_t i = 0; i < input.size(); ++i) input[i] = static_cast<uint8_t>(i);
+    std::vector<std::vector<uint8_t>> packets;
+    auto collect = [&](const uint8_t* data, size_t len) { packets.emplace_back(data, data + len); };
+
+    chunker.feed(input.data(), 10, collect);
+    assert(packets.size() == 2 && chunker.pending_bytes() == 2);
+    const uint8_t tail[] = {10, 11, 12, 13, 14, 15};
+    chunker.feed(tail, sizeof(tail), collect);
+    assert(packets.size() == 4 && chunker.pending_bytes() == 0);
+    for (size_t p = 0; p < packets.size(); ++p) {
+      assert(packets[p].size() == 4);
+      for (size_t i = 0; i < 4; ++i) assert(packets[p][i] == p * 4 + i);
+    }
+  }
+
+  // Callbacks smaller than a packet accumulate until one is complete.
+  {
+    PacketChunker chunker(960);
+    const std::vector<uint8_t> small(300, 7);
+    size_t emitted = 0;
+    auto count = [&](const uint8_t*, size_t len) {
+      assert(len == 960);
+      ++emitted;
+    };
+    for (int i = 0; i < 3; ++i) chunker.feed(small.data(), small.size(), count);
+    assert(emitted == 0 && chunker.pending_bytes() == 900);
+    chunker.feed(small.data(), small.size(), count);
+    assert(emitted == 1 && chunker.pending_bytes() == 240);
+  }
+
+  // A 512-frame 16-bit stereo callback (2048 bytes) becomes 5ms packets
+  // well under the receiver's 2048-byte buffer.
+  {
+    const AudioFormat format{48000, 16};
+    PacketChunker chunker(format.bytes_per_packet());
+    const std::vector<uint8_t> callback(512 * format.bytes_per_frame(), 0);
+    size_t emitted = 0;
+    chunker.feed(callback.data(), callback.size(), [&](const uint8_t*, size_t len) {
+      assert(len == 960);
+      ++emitted;
+    });
+    assert(emitted == 2 && chunker.pending_bytes() == 128);
+  }
+
+  // A zero sample rate (possible from an unvalidated network message) is
+  // unsupported and would size packets at zero bytes; the chunker must
+  // return rather than loop forever on the audio thread.
+  {
+    const AudioFormat zero_rate{0, 16};
+    assert(!zero_rate.is_supported() && zero_rate.bytes_per_packet() == 0);
+    const AudioFormat cd_rate{44100, 16}, deep{48000, 24}, low{24000, 8}, high{48000, 16};
+    assert(!cd_rate.is_supported() && !deep.is_supported());
+    assert(low.is_supported() && high.is_supported());
+
+    PacketChunker chunker(zero_rate.bytes_per_packet());
+    const uint8_t data[16] = {};
+    bool emitted = false;
+    chunker.feed(data, sizeof(data), [&](const uint8_t*, size_t) { emitted = true; });
+    assert(!emitted && chunker.pending_bytes() == 0);
   }
 
   return 0;

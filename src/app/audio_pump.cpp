@@ -65,9 +65,11 @@ void pump_master(AppState& state) {
     // Mirror Slave's actual settings rather than sending anything -- see
     // audio_master_overridden's declaration. The user hasn't asked Master to
     // request a particular format yet, so there's no request to push.
+    // Until Slave's first report, peer_audio_sample_rate is 0: keep the
+    // current valid format so an edit made now builds on something sendable.
     state.audio_master_desired_send_enabled = info.peer_audio_send_enabled;
-    state.audio_master_desired_format.sample_rate = info.peer_audio_sample_rate;
-    state.audio_master_desired_format.bit_depth = info.peer_audio_bit_depth;
+    const audio::AudioFormat reported{info.peer_audio_sample_rate, info.peer_audio_bit_depth};
+    if (reported.is_supported()) state.audio_master_desired_format = reported;
   } else {
     // Push Master's desired settings to Slave -- once as soon as the
     // connection is up, and again on every subsequent change -- regardless
@@ -205,8 +207,8 @@ void pump_slave(AppState& state) {
   if (info.master_audio_control_received &&
       info.master_audio_control_seq != state.audio_last_applied_master_control_seq) {
     state.audio_send_enabled = info.master_requested_send_enabled;
-    state.audio_desired_format.sample_rate = info.master_requested_sample_rate;
-    state.audio_desired_format.bit_depth = info.master_requested_bit_depth;
+    const audio::AudioFormat requested{info.master_requested_sample_rate, info.master_requested_bit_depth};
+    if (requested.is_supported()) state.audio_desired_format = requested;
     state.audio_last_applied_master_control_seq = info.master_audio_control_seq;
   }
 

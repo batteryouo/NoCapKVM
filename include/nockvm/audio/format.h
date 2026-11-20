@@ -14,6 +14,12 @@ struct AudioFormat {
   uint32_t sample_rate = 48000;
   uint8_t bit_depth = 16;  // 8 or 16
 
+  // The combinations the UI offers. Anything else (e.g. a zero sample rate
+  // from an unvalidated network message) yields a zero-sized packet.
+  bool is_supported() const {
+    return (sample_rate == 24000 || sample_rate == 48000) && (bit_depth == 8 || bit_depth == 16);
+  }
+
   uint32_t bytes_per_sample() const { return bit_depth / 8; }
   uint32_t bytes_per_frame() const { return bytes_per_sample() * kChannels; }
 
