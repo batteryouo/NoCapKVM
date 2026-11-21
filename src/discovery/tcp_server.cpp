@@ -303,9 +303,9 @@ void TcpServer::run() {
       }
     });
     disconnect_requested_ = false;
-    // Both count as "the peer is still there": Ok is an understood message,
-    // Error is still bytes actually arriving (just malformed/undecryptable)
-    // -- only Timeout means nothing arrived this poll.
+    // Only received bytes (a whole frame, or part of a long one) count as
+    // "the peer is still there". Error ends the session (see
+    // SecureChannel::RecvResult).
     auto last_heard = std::chrono::steady_clock::now();
     auto last_heartbeat_sent = std::chrono::steady_clock::now();
     // RTT-measurement state: one ping in flight at a time. A late pong for
@@ -320,8 +320,12 @@ void TcpServer::run() {
       std::vector<uint8_t> payload;
       const auto result =
           channel.receive(msg_type, payload, std::chrono::steady_clock::now() + std::chrono::milliseconds(200));
-      if (result == SecureChannel::RecvResult::Closed) break;
-      if (result != SecureChannel::RecvResult::Timeout) last_heard = std::chrono::steady_clock::now();
+      // Error leaves the stream misaligned; dropping the session is the only
+      // recovery. Slave reconnects on its own, without re-approval.
+      if (result == SecureChannel::RecvResult::Closed || result == SecureChannel::RecvResult::Error) break;
+      if (result == SecureChannel::RecvResult::Ok || result == SecureChannel::RecvResult::InProgress) {
+        last_heard = std::chrono::steady_clock::now();
+      }
       if (result == SecureChannel::RecvResult::Ok) {
         if (msg_type == kMsgMonitorList) {
           std::vector<display::MonitorInfo> monitors;

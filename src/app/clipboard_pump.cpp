@@ -52,6 +52,14 @@ void sync_clipboard(AppState& state, bool connected, SendFn&& send, TakeFn&& tak
   // would ping-pong the same content forever.
   if (state.clipboard_last_applied_valid && *current == state.clipboard_last_applied) return;
 
+  // Too large for one frame (in practice only text: images are re-encoded
+  // to fit). Counted once per new clipboard content, since the "unchanged"
+  // check above skips it on later polls.
+  if (current->data.size() > clipboard::kMaxClipboardBytes) {
+    telemetry::counters().clipboard_too_large.fetch_add(1, std::memory_order_relaxed);
+    return;
+  }
+
   const uint8_t msg_type =
       current->type == clipboard::ContentType::Text ? discovery::kMsgClipboardText : discovery::kMsgClipboardImage;
   send(msg_type, current->data.data(), current->data.size());

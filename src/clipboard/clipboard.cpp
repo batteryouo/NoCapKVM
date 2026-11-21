@@ -15,7 +15,7 @@
 namespace nockvm::clipboard {
 namespace {
 constexpr int kJpegQuality = 85;
-constexpr size_t kMaxJpegBytes = 6u * 1024 * 1024;  // safely under SecureChannel's 8MB frame cap
+constexpr size_t kMaxJpegBytes = kMaxClipboardBytes;
 }  // namespace
 
 #ifdef _WIN32

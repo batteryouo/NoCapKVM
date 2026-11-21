@@ -44,6 +44,8 @@ struct PeriodicSummary {
   uint64_t raw_input_processed = 0;
   uint64_t clipboard_sent = 0;
   uint64_t clipboard_received = 0;
+  uint64_t clipboard_too_large = 0;
+  uint64_t channel_errors = 0;
   uint64_t hook_events = 0;
   uint32_t hook_lag_max_ms = 0;
   uint64_t hook_lag_slow = 0;

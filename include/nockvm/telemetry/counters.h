@@ -33,6 +33,12 @@ struct Counters {
 
   std::atomic<uint64_t> clipboard_sent{0};
   std::atomic<uint64_t> clipboard_received{0};
+  // Clipboard content not sent because it exceeds kMaxClipboardBytes.
+  std::atomic<uint64_t> clipboard_too_large{0};
+
+  // Control channels dropped because a frame could not be read or
+  // decrypted (SecureChannel::RecvResult::Error). Counted once per channel.
+  std::atomic<uint64_t> channel_errors{0};
 
   // Low-level hook delivery lag, fed by record_hook_lag(). hook_lag_max_ms
   // is the maximum since the last periodic report; the reporter resets it.

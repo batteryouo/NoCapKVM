@@ -1,5 +1,7 @@
 #include "nockvm/discovery/secure_channel.h"
+#include <algorithm>
 #include "nockvm/discovery/platform_socket.h"
+#include "nockvm/telemetry/counters.h"
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
@@ -11,34 +13,17 @@
 namespace nockvm::discovery {
 namespace {
 
-// Once a frame has started arriving, it's expected to complete almost
-// immediately on a local LAN; this bounds a stalled/half-open peer rather
-// than the normal per-poll wait (that's `deadline` in receive()).
-constexpr auto kFrameTimeout = std::chrono::seconds(3);
+// Once a frame has started arriving, the longest gap allowed between two
+// received chunks of it. This bounds a stalled or half-open peer, not the
+// whole frame: a multi-megabyte clipboard image on a slow link may take
+// longer than this in total, and must not fail as long as it keeps moving.
+// Measured across receive() calls.
+constexpr auto kFrameIdleTimeout = std::chrono::seconds(3);
 // Sanity cap. 1MB comfortably covered every message type here until
 // clipboard image sync (JPEG-encoded clipboard images, see
 // nockvm::clipboard::encode_jpeg's own max_bytes budget) started producing
 // payloads that occasionally need more room than that.
 constexpr uint32_t kMaxFrameLen = 8u << 20;
-
-// Reads exactly `len` bytes, distinguishing a clean peer-close (`closed`
-// set to true) from a stall past `deadline`.
-bool read_exact(socket_t sock, uint8_t* buf, size_t len, std::chrono::steady_clock::time_point deadline,
-                 bool& closed) {
-  size_t received = 0;
-  while (received < len) {
-    if (std::chrono::steady_clock::now() >= deadline) return false;
-    const int n = recv(sock, reinterpret_cast<char*>(buf + received), static_cast<int>(len - received), 0);
-    if (n > 0) {
-      received += static_cast<size_t>(n);
-    } else if (n == 0) {
-      closed = true;
-      return false;
-    }
-    // n < 0: likely a receive-timeout expiring; loop back and recheck the deadline.
-  }
-  return true;
-}
 
 }  // namespace
 
@@ -67,44 +52,87 @@ bool SecureChannel::send(uint8_t msg_type, const uint8_t* payload, size_t len) {
   return send_all(sock_, frame.data(), frame.size());
 }
 
+SecureChannel::RecvResult SecureChannel::fail() {
+  if (!broken_) telemetry::counters().channel_errors.fetch_add(1, std::memory_order_relaxed);
+  broken_ = true;
+  return RecvResult::Error;
+}
+
 SecureChannel::RecvResult SecureChannel::receive(uint8_t& msg_type, std::vector<uint8_t>& payload,
                                                    std::chrono::steady_clock::time_point deadline) {
-  const auto now = std::chrono::steady_clock::now();
-  const auto wait_ms =
-      deadline > now ? std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now) : std::chrono::milliseconds(0);
-  if (!wait_readable(sock_, wait_ms)) return RecvResult::Timeout;
+  using clock = std::chrono::steady_clock;
+  if (broken_) return RecvResult::Error;
 
-  // Something is readable: commit to reading the whole frame, bounded by
-  // its own generous deadline rather than the (typically short, ~200ms)
-  // poll deadline above — otherwise a frame that starts arriving right as
-  // the poll window closes would be abandoned mid-frame and desync the
-  // stream for the next call.
-  const auto frame_deadline = std::chrono::steady_clock::now() + kFrameTimeout;
+  // Reads whatever arrives until `deadline`. A frame that is not complete
+  // by then stays buffered in this object and the next call resumes it, so
+  // the caller's loop keeps running (heartbeats, stop flags) during a long
+  // frame. The stream is only abandoned when a started frame stalls for
+  // kFrameIdleTimeout, which leaves it misaligned and so is fatal.
+  bool progressed = false;
+  for (;;) {
+    const auto now = clock::now();
+    // Checked before reading, not only when the socket goes quiet: a socket
+    // that stays readable (a long frame on a busy link) must not keep this
+    // call past its deadline. At least one read happens per call, so even a
+    // deadline already in the past makes progress.
+    if (progressed && now >= deadline) return RecvResult::InProgress;
+    const bool in_frame = header_got_ > 0;
+    if (in_frame && now - last_progress_ >= kFrameIdleTimeout) return fail();
 
-  uint8_t len_buf[4];
-  bool closed = false;
-  if (!read_exact(sock_, len_buf, sizeof(len_buf), frame_deadline, closed)) {
-    return closed ? RecvResult::Closed : RecvResult::Error;
+    auto until = deadline;
+    if (in_frame) until = (std::min)(until, last_progress_ + kFrameIdleTimeout);  // parenthesized: windows.h min macro
+    const auto wait = until > now ? std::chrono::ceil<std::chrono::milliseconds>(until - now) : std::chrono::milliseconds(0);
+    if (!wait_readable(sock_, wait)) {
+      if (clock::now() >= deadline) return progressed ? RecvResult::InProgress : RecvResult::Timeout;
+      continue;  // the idle limit came first; the check above fails the frame
+    }
+
+    uint8_t* dst;
+    size_t want;
+    if (header_got_ < sizeof(header_)) {
+      dst = header_ + header_got_;
+      want = sizeof(header_) - header_got_;
+    } else {
+      dst = body_.data() + body_got_;
+      want = body_.size() - body_got_;
+    }
+    const int n = recv(sock_, reinterpret_cast<char*>(dst), static_cast<int>(want), 0);
+    // Readable but nothing to read is a peer close; a failure right after
+    // the socket reported readable is a reset. Either way the session ends.
+    if (n <= 0) return RecvResult::Closed;
+    progressed = true;
+    last_progress_ = clock::now();
+
+    if (header_got_ < sizeof(header_)) {
+      header_got_ += static_cast<size_t>(n);
+      if (header_got_ < sizeof(header_)) continue;
+      const uint32_t ct_len = (static_cast<uint32_t>(header_[0]) << 24) | (static_cast<uint32_t>(header_[1]) << 16) |
+                              (static_cast<uint32_t>(header_[2]) << 8) | static_cast<uint32_t>(header_[3]);
+      if (ct_len == 0 || ct_len > kMaxFrameLen) return fail();
+      body_.assign(ct_len, 0);
+      body_got_ = 0;
+      continue;
+    }
+    body_got_ += static_cast<size_t>(n);
+    if (body_got_ < body_.size()) continue;
+
+    // Frame complete. Reset first, so the next call starts a new frame.
+    const std::vector<uint8_t> ciphertext = std::move(body_);
+    body_ = {};
+    body_got_ = 0;
+    header_got_ = 0;
+
+    std::vector<uint8_t> plaintext;
+    if (!aead_decrypt(keys_.recv_key, recv_nonce_, nullptr, 0, ciphertext.data(), ciphertext.size(), plaintext)) {
+      return fail();
+    }
+    recv_nonce_++;
+    if (plaintext.empty()) return fail();
+
+    msg_type = plaintext[0];
+    payload.assign(plaintext.begin() + 1, plaintext.end());
+    return RecvResult::Ok;
   }
-  const uint32_t ct_len = (static_cast<uint32_t>(len_buf[0]) << 24) | (static_cast<uint32_t>(len_buf[1]) << 16) |
-                           (static_cast<uint32_t>(len_buf[2]) << 8) | static_cast<uint32_t>(len_buf[3]);
-  if (ct_len == 0 || ct_len > kMaxFrameLen) return RecvResult::Error;
-
-  std::vector<uint8_t> ciphertext(ct_len);
-  if (!read_exact(sock_, ciphertext.data(), ct_len, frame_deadline, closed)) {
-    return closed ? RecvResult::Closed : RecvResult::Error;
-  }
-
-  std::vector<uint8_t> plaintext;
-  if (!aead_decrypt(keys_.recv_key, recv_nonce_, nullptr, 0, ciphertext.data(), ciphertext.size(), plaintext)) {
-    return RecvResult::Error;
-  }
-  recv_nonce_++;
-  if (plaintext.empty()) return RecvResult::Error;
-
-  msg_type = plaintext[0];
-  payload.assign(plaintext.begin() + 1, plaintext.end());
-  return RecvResult::Ok;
 }
 
 }  // namespace nockvm::discovery

@@ -141,6 +141,8 @@ int main() {
     s.raw_input_processed = 4200;
     s.clipboard_sent = 2;
     s.clipboard_received = 1;
+    s.clipboard_too_large = 4;
+    s.channel_errors = 5;
     s.hook_events = 9000;
     s.hook_lag_max_ms = 94;
     s.hook_lag_slow = 12;
@@ -176,6 +178,8 @@ int main() {
     assert(line.find("raw_input_processed=4200") != std::string::npos);
     assert(line.find("clipboard_sent=2") != std::string::npos);
     assert(line.find("clipboard_received=1") != std::string::npos);
+    assert(line.find("clipboard_too_large=4") != std::string::npos);
+    assert(line.find("channel_errors=5") != std::string::npos);
     assert(line.find("hook_events=9000") != std::string::npos);
     assert(line.find("hook_lag_max_ms=94") != std::string::npos);
     assert(line.find("hook_lag_slow=12") != std::string::npos);

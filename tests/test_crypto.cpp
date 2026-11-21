@@ -300,6 +300,137 @@ int main() {
     std::filesystem::remove_all(scratch);
   }
 
+  // SecureChannel framing failures. These write raw bytes to the socket, so
+  // fixed keys are enough; no handshake is needed.
+  {
+    Key32 k1{};
+    Key32 k2{};
+    k1.fill(0x31);
+    k2.fill(0x32);
+    const TransportKeys receiver_keys{k2, k1};
+
+    // The ciphertext of one valid frame (type 7, payload {1,2,3}) under the
+    // receiver's first nonce, with its 4-byte big-endian length prefix.
+    const uint8_t plain[4] = {7, 1, 2, 3};
+    const std::vector<uint8_t> ct = aead_encrypt(k1, 0, nullptr, 0, plain, sizeof(plain));
+    std::vector<uint8_t> frame = {static_cast<uint8_t>(ct.size() >> 24), static_cast<uint8_t>(ct.size() >> 16),
+                                  static_cast<uint8_t>(ct.size() >> 8), static_cast<uint8_t>(ct.size())};
+    frame.insert(frame.end(), ct.begin(), ct.end());
+
+    const auto connected_pair = [](socket_t& sender, socket_t& receiver) {
+      uint16_t port = 0;
+      socket_t listener = make_loopback_listener(port);
+      sender = connect_loopback(port);
+      receiver = accept(listener, nullptr, nullptr);
+      close_socket(listener);
+      set_receive_timeout(receiver, std::chrono::milliseconds(200));
+    };
+
+    // An invalid length prefix is an Error, and the channel stays broken:
+    // a valid frame right behind it must not be decoded from a misaligned
+    // stream.
+    {
+      socket_t sender, receiver;
+      connected_pair(sender, receiver);
+      const uint8_t oversized[4] = {0x7f, 0xff, 0xff, 0xff};
+      assert(send_all(sender, oversized, sizeof(oversized)));
+      assert(send_all(sender, frame.data(), frame.size()));
+
+      SecureChannel channel(receiver, receiver_keys);
+      uint8_t type = 0;
+      std::vector<uint8_t> payload;
+      const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+      assert(channel.receive(type, payload, deadline) == SecureChannel::RecvResult::Error);
+      assert(channel.receive(type, payload, deadline) == SecureChannel::RecvResult::Error);
+      close_socket(sender);
+      close_socket(receiver);
+    }
+
+    // The deadline is honored even while the socket stays readable: with a
+    // whole frame already buffered and a deadline already passed, a call
+    // reads one chunk (the length prefix) and returns InProgress instead of
+    // reading on; the next call finishes the frame.
+    {
+      socket_t sender, receiver;
+      connected_pair(sender, receiver);
+      assert(send_all(sender, frame.data(), frame.size()));
+      assert(wait_readable(receiver, std::chrono::milliseconds(2000)));
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));  // let the whole frame land
+
+      SecureChannel channel(receiver, receiver_keys);
+      uint8_t type = 0;
+      std::vector<uint8_t> payload;
+      const auto past = std::chrono::steady_clock::now() - std::chrono::milliseconds(1);
+      assert(channel.receive(type, payload, past) == SecureChannel::RecvResult::InProgress);
+      assert(channel.receive(type, payload, past) == SecureChannel::RecvResult::Ok);
+      assert(type == 7 && payload == std::vector<uint8_t>({1, 2, 3}));
+      close_socket(sender);
+      close_socket(receiver);
+    }
+
+    // A frame that arrives slowly but keeps moving is read in full, even
+    // when the whole frame takes longer than the mid-frame idle limit (3s).
+    // receive() is polled the way the session loops poll it (200ms
+    // deadlines): each call must return near its deadline instead of
+    // blocking until the frame completes, and report InProgress while
+    // bytes are arriving.
+    {
+      socket_t sender, receiver;
+      connected_pair(sender, receiver);
+      std::thread writer([&] {
+        const size_t third = frame.size() / 3;
+        assert(send_all(sender, frame.data(), third));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1700));
+        assert(send_all(sender, frame.data() + third, third));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1700));
+        assert(send_all(sender, frame.data() + 2 * third, frame.size() - 2 * third));
+      });
+      SecureChannel channel(receiver, receiver_keys);
+      uint8_t type = 0;
+      std::vector<uint8_t> payload;
+      int in_progress = 0;
+      SecureChannel::RecvResult result = SecureChannel::RecvResult::Timeout;
+      const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+      while (std::chrono::steady_clock::now() < give_up) {
+        const auto call_start = std::chrono::steady_clock::now();
+        result = channel.receive(type, payload, call_start + std::chrono::milliseconds(200));
+        assert(std::chrono::steady_clock::now() - call_start < std::chrono::milliseconds(500));
+        if (result == SecureChannel::RecvResult::InProgress) ++in_progress;
+        if (result != SecureChannel::RecvResult::Timeout && result != SecureChannel::RecvResult::InProgress) break;
+      }
+      writer.join();
+      assert(result == SecureChannel::RecvResult::Ok);
+      assert(in_progress >= 2);
+      assert(type == 7 && payload == std::vector<uint8_t>({1, 2, 3}));
+      close_socket(sender);
+      close_socket(receiver);
+    }
+
+    // A frame that stops arriving midway is an Error once the idle limit
+    // passes, while the peer keeps the socket open. Polled calls keep
+    // returning on time until then.
+    {
+      socket_t sender, receiver;
+      connected_pair(sender, receiver);
+      assert(send_all(sender, frame.data(), frame.size() / 2));
+      SecureChannel channel(receiver, receiver_keys);
+      uint8_t type = 0;
+      std::vector<uint8_t> payload;
+      const auto start = std::chrono::steady_clock::now();
+      SecureChannel::RecvResult result = SecureChannel::RecvResult::Timeout;
+      while (std::chrono::steady_clock::now() - start < std::chrono::seconds(10)) {
+        const auto call_start = std::chrono::steady_clock::now();
+        result = channel.receive(type, payload, call_start + std::chrono::milliseconds(200));
+        assert(std::chrono::steady_clock::now() - call_start < std::chrono::milliseconds(500));
+        if (result != SecureChannel::RecvResult::Timeout && result != SecureChannel::RecvResult::InProgress) break;
+      }
+      assert(result == SecureChannel::RecvResult::Error);
+      assert(std::chrono::steady_clock::now() - start >= std::chrono::milliseconds(2900));
+      close_socket(sender);
+      close_socket(receiver);
+    }
+  }
+
   std::printf("All crypto tests passed.\n");
   return 0;
 }

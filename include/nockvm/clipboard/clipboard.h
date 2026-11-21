@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -6,6 +7,11 @@
 namespace nockvm::clipboard {
 
 enum class ContentType : uint8_t { Text, Jpeg };
+
+// Largest clipboard payload sent to the peer, text or JPEG. Keeps every
+// clipboard frame safely under SecureChannel's 8MB frame cap (kMaxFrameLen
+// in secure_channel.cpp), which the receiver treats as a broken stream.
+constexpr size_t kMaxClipboardBytes = 6u * 1024 * 1024;
 
 struct ClipboardContent {
   ContentType type = ContentType::Text;

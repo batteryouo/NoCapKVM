@@ -263,8 +263,11 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
     uint8_t msg_type;
     std::vector<uint8_t> payload;
     const auto result = channel.receive(msg_type, payload, std::chrono::steady_clock::now() + std::chrono::milliseconds(200));
-    if (result == SecureChannel::RecvResult::Closed) break;
-    if (result != SecureChannel::RecvResult::Timeout) last_heard = std::chrono::steady_clock::now();
+    // Error leaves the stream misaligned; reconnecting is the only recovery.
+    if (result == SecureChannel::RecvResult::Closed || result == SecureChannel::RecvResult::Error) break;
+    if (result == SecureChannel::RecvResult::Ok || result == SecureChannel::RecvResult::InProgress) {
+      last_heard = std::chrono::steady_clock::now();
+    }
     if (result == SecureChannel::RecvResult::Ok) {
       if (msg_type == kMsgAudioPort) {
         uint16_t audio_port = 0;
@@ -316,7 +319,7 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
         dispatch_input_message(msg_type, payload);
       }
     }
-    // Timeout/Error: keep polling running_.
+    // Timeout: keep polling running_.
 
     const auto now = std::chrono::steady_clock::now();
     if (now - last_heard >= give_up_after_) break;  // silent peer -- same as a closed connection

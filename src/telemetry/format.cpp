@@ -49,7 +49,8 @@ std::string format_periodic_summary(const PeriodicSummary& s) {
                 "audio_buffer=%zu/%zu audio_rx_pps=%.1f audio_rx=%llu audio_decoded=%llu "
                 "audio_rejected=%llu audio_dropped=%llu audio_underruns=%llu audio_start_failures=%llu "
                 "raw_input_pps=%.1f raw_input_total=%llu raw_input_processed=%llu "
-                "clipboard_sent=%llu clipboard_received=%llu hook_events=%llu hook_lag_max_ms=%u hook_lag_slow=%llu "
+                "clipboard_sent=%llu clipboard_received=%llu clipboard_too_large=%llu channel_errors=%llu "
+                "hook_events=%llu hook_lag_max_ms=%u hook_lag_slow=%llu "
                 "connected=%s role=%s state=%s",
                 static_cast<unsigned long long>(s.uptime_s), s.cpu_pct, s.working_set_mib, s.private_mib, s.handles,
                 s.fps, s.frame_avg_ms, s.frame_max_ms, s.window_visible ? "true" : "false", s.audio_buffer_depth,
@@ -62,7 +63,9 @@ std::string format_periodic_summary(const PeriodicSummary& s) {
                 static_cast<unsigned long long>(s.raw_input_events),
                 static_cast<unsigned long long>(s.raw_input_processed),
                 static_cast<unsigned long long>(s.clipboard_sent),
-                static_cast<unsigned long long>(s.clipboard_received), static_cast<unsigned long long>(s.hook_events),
+                static_cast<unsigned long long>(s.clipboard_received),
+                static_cast<unsigned long long>(s.clipboard_too_large),
+                static_cast<unsigned long long>(s.channel_errors), static_cast<unsigned long long>(s.hook_events),
                 s.hook_lag_max_ms, static_cast<unsigned long long>(s.hook_lag_slow), s.connected ? "true" : "false",
                 s.role.c_str(), s.connection_state.c_str());
   std::string line = buf;

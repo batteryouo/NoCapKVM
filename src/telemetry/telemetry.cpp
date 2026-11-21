@@ -79,6 +79,8 @@ void tick(double frame_time_ms, const FrameContext& ctx) {
   const uint64_t raw_input_processed = c.raw_input_processed.load(std::memory_order_relaxed);
   const uint64_t clipboard_sent = c.clipboard_sent.load(std::memory_order_relaxed);
   const uint64_t clipboard_received = c.clipboard_received.load(std::memory_order_relaxed);
+  const uint64_t clipboard_too_large = c.clipboard_too_large.load(std::memory_order_relaxed);
+  const uint64_t channel_errors = c.channel_errors.load(std::memory_order_relaxed);
   const uint64_t audio_slave_start_failures = c.audio_slave_start_failures.load(std::memory_order_relaxed);
   const uint64_t hook_events = c.hook_events.load(std::memory_order_relaxed);
   const uint64_t hook_lag_slow = c.hook_lag_slow.load(std::memory_order_relaxed);
@@ -120,6 +122,8 @@ void tick(double frame_time_ms, const FrameContext& ctx) {
   s.raw_input_processed = raw_input_processed;
   s.clipboard_sent = clipboard_sent;
   s.clipboard_received = clipboard_received;
+  s.clipboard_too_large = clipboard_too_large;
+  s.channel_errors = channel_errors;
   s.hook_events = hook_events;
   s.hook_lag_max_ms = hook_lag_max_ms;
   s.hook_lag_slow = hook_lag_slow;
