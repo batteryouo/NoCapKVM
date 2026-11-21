@@ -371,13 +371,19 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
     active_channel_ = nullptr;
   }
   close_socket(sock);
+  bool kicked = false;
   {
     std::lock_guard<std::mutex> lock(status_mutex_);
     status_.state = ConnectionState::Failed;
+    kicked = status_.go_away_received;
   }
+  // Master ended the session on purpose (its Disconnect button). Reconnecting
+  // would only show Master the approval prompt again, so stop; the user
+  // reconnects by hand. go_away_received stays set in status() for the UI.
+  if (kicked) return AttemptOutcome::kGiveUp;
   // Reached Connected before dropping -- retry soon rather than backing off,
-  // since this looks like an external event (Master closed, emergency-escape
-  // disconnect, a brief network blip) rather than the peer being unreachable.
+  // since this looks like an external event (Master closed, a brief network
+  // blip) rather than the peer being unreachable.
   return AttemptOutcome::kRetryFast;
 }
 

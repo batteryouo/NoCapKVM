@@ -331,6 +331,8 @@ void draw_connection_tab(AppState& state) {
         state.tcp_client.reset();
       }
       draw_connection_quality(state, info);
+    } else if (info.go_away_received) {
+      ImGui::TextUnformatted("Disconnected by the Master.");
     } else {
       ImGui::TextUnformatted("Connection failed");
     }

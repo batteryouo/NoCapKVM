@@ -171,6 +171,13 @@ int main() {
   assert(wait_until([&] { return server.status().state != ConnectionState::Connected; }, std::chrono::seconds(5)));
   assert(!server.send_input(kMsgHeartbeat, &none, 0));
 
+  // disconnect_current() is a kick: Slave sees kMsgGoAway and does not
+  // reconnect. Its retry would come back within about 1s (kRetryFast) and
+  // show up on Master as a new pairing prompt, so watch for 3s.
+  assert(wait_until([&] { return client.status().go_away_received; }, std::chrono::seconds(5)));
+  assert(!wait_until([&] { return server.status().state != ConnectionState::Idle; }, std::chrono::seconds(3)));
+  assert(client.status().state == ConnectionState::Failed);
+
   client.stop();
   server.stop();
 

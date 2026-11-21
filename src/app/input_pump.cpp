@@ -316,11 +316,9 @@ void pump_input(InputSession& s) {
     // the ordinary crossing back does this; the only difference is that
     // here the keys involved are the hotkey's own.
     release_held_keys_on_slave(s);
-    // The emergency escape is a hard reset, not just a handoff: drop the
-    // connection outright rather than leaving it up. Reconnecting is
-    // currently manual (Slave has to click Connect again) -- a known,
-    // accepted rough edge for now rather than something to solve here.
-    s.server.disconnect_current();
+    // Only input control comes back; the connection, audio and clipboard
+    // stay up. Ending the session is the UI's Disconnect button, which
+    // also tells Slave to stop reconnecting (kMsgGoAway).
     return;
   }
 

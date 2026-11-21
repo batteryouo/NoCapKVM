@@ -25,9 +25,8 @@ class TcpServer {
 public:
   // heartbeat_timeout bounds how long the current connection can go without
   // any traffic (real messages or the periodic heartbeat both count) before
-  // it's treated as dead and force-disconnected -- the same policy as the
-  // emergency-escape hotkey's manual disconnect_current(), just triggered
-  // automatically instead of by a keypress. Live-adjustable afterward via
+  // it's treated as dead and dropped. Unlike disconnect_current(), that is
+  // not a kick: Slave reconnects without re-approval. Live-adjustable afterward via
   // set_heartbeat_timeout() since this object outlives any single
   // connection (the user's Discovery-screen setting can change while
   // already connected).
@@ -57,7 +56,9 @@ public:
   void reject_pairing();
 
   // Called from the UI thread to end the current connection (if any)
-  // without stopping the listener itself.
+  // without stopping the listener itself. This is a kick: Slave is sent
+  // kMsgGoAway and stops reconnecting, and its next connection this session
+  // needs approval again.
   void disconnect_current();
 
   // Called from the UI thread whenever the user changes the connection

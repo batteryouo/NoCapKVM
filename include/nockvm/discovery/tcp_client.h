@@ -58,7 +58,7 @@ private:
   enum class AttemptOutcome {
     kRetryFast,     // reached Connected before failing -- retry soon
     kRetryBackoff,  // never got connected -- retry after a growing delay
-    kGiveUp,        // pairing was explicitly rejected -- not worth retrying
+    kGiveUp,        // pairing rejected, or Master sent kMsgGoAway -- not worth retrying
   };
   AttemptOutcome run_once();
   void run();
