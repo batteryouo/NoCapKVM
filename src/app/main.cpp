@@ -141,9 +141,6 @@ int main() {
   state.auto_connect_enabled = settings.auto_connect_enabled;
   state.audio_send_enabled = settings.slave_audio_send_enabled;
   state.audio_desired_format = settings.slave_audio_format;
-  state.audio_master_overridden = settings.master_audio_overridden;
-  state.audio_master_desired_send_enabled = settings.master_audio_send_enabled;
-  state.audio_master_desired_format = settings.master_audio_format;
   state.device_id = nockvm::discovery::get_or_create_device_id();
   state.hostname = nockvm::discovery::get_hostname();
   state.local_monitors = nockvm::display::get_local_monitors();

@@ -10,9 +10,6 @@ struct UserSettings {
   bool auto_connect_enabled = true;
   bool slave_audio_send_enabled = true;
   audio::AudioFormat slave_audio_format;
-  bool master_audio_overridden = false;
-  bool master_audio_send_enabled = true;
-  audio::AudioFormat master_audio_format;
 };
 
 // Loads the settings stored in the app config directory. Missing, malformed,

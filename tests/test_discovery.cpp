@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include "nockvm/discovery/audio_port_protocol.h"
 #include "nockvm/discovery/monitor_protocol.h"
 #include "nockvm/discovery/outgoing_queue.h"
 #include "nockvm/discovery/ping_protocol.h"
@@ -37,9 +38,6 @@ int main() {
     settings.auto_connect_enabled = false;
     settings.slave_audio_send_enabled = false;
     settings.slave_audio_format = {24000, 8};
-    settings.master_audio_overridden = true;
-    settings.master_audio_send_enabled = false;
-    settings.master_audio_format = {24000, 8};
     save_user_settings(settings);
 
     const UserSettings loaded = load_user_settings();
@@ -47,20 +45,17 @@ int main() {
     assert(!loaded.auto_connect_enabled);
     assert(!loaded.slave_audio_send_enabled);
     assert(loaded.slave_audio_format == settings.slave_audio_format);
-    assert(loaded.master_audio_overridden);
-    assert(!loaded.master_audio_send_enabled);
-    assert(loaded.master_audio_format == settings.master_audio_format);
 
+    // "master_audio" is a line older versions wrote. It must be skipped
+    // without disturbing the keys after it.
     std::ofstream out(scratch / "user_settings");
-    out << "connection_timeout_s 0\nslave_audio 1 12345 32\nmaster_audio 1 1 48000 16\n";
+    out << "connection_timeout_s 0\nslave_audio 1 12345 32\nmaster_audio 1 1 48000 16\nauto_connect_enabled 0\n";
     out.close();
     const UserSettings recovered = load_user_settings();
     assert(recovered.connection_timeout_s == 10);
     assert(recovered.slave_audio_send_enabled);
     assert(recovered.slave_audio_format == nockvm::audio::AudioFormat{});
-    assert(recovered.master_audio_overridden);
-    assert(recovered.master_audio_send_enabled);
-    assert(recovered.master_audio_format == nockvm::audio::AudioFormat{});
+    assert(!recovered.auto_connect_enabled);
 
     std::filesystem::remove_all(scratch);
   }
@@ -299,6 +294,23 @@ int main() {
     assert(!result.has_value());
     const uint8_t a = 1;
     assert(q.push(10, &a, 1) == OutgoingQueue::PushResult::Closed);
+  }
+
+  // Audio settings round-trip, including the request id, and a 6-byte
+  // payload from an older peer decodes with request id 0.
+  {
+    const auto bytes = encode_audio_settings(true, 24000, 8, 0x01020304u);
+    assert(bytes.size() == 10);
+    bool enabled = false;
+    uint32_t rate = 0;
+    uint8_t depth = 0;
+    uint32_t id = 0;
+    assert(decode_audio_settings(bytes.data(), bytes.size(), enabled, rate, depth, id));
+    assert(enabled && rate == 24000 && depth == 8 && id == 0x01020304u);
+
+    assert(decode_audio_settings(bytes.data(), 6, enabled, rate, depth, id));
+    assert(enabled && rate == 24000 && depth == 8 && id == 0);
+    assert(!decode_audio_settings(bytes.data(), 5, enabled, rate, depth, id));
   }
 
   return 0;

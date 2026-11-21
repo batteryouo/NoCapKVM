@@ -333,11 +333,14 @@ void TcpServer::run() {
           bool send_enabled;
           uint32_t sample_rate;
           uint8_t bit_depth;
-          if (decode_audio_settings(payload.data(), payload.size(), send_enabled, sample_rate, bit_depth)) {
+          uint32_t applied_request_id;
+          if (decode_audio_settings(payload.data(), payload.size(), send_enabled, sample_rate, bit_depth,
+                                    applied_request_id)) {
             std::lock_guard<std::mutex> lock(status_mutex_);
             status_.peer_audio_send_enabled = send_enabled;
             status_.peer_audio_sample_rate = sample_rate;
             status_.peer_audio_bit_depth = bit_depth;
+            status_.peer_audio_applied_request_id = applied_request_id;
           }
         } else if (msg_type == kMsgPing) {
           uint32_t seq;

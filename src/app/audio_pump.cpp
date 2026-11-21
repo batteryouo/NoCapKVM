@@ -44,8 +44,7 @@ void pump_master(AppState& state) {
       stop_master_audio(state);
       state.audio_active = false;
     }
-    state.audio_master_control_sent = false;
-    state.audio_master_overridden = false;
+    state.audio_master_request.reset();
     return;
   }
 
@@ -57,38 +56,16 @@ void pump_master(AppState& state) {
       stop_master_audio(state);
       state.audio_active = false;
     }
-    state.audio_master_control_sent = false;
-    state.audio_master_overridden = false;
+    state.audio_master_request.reset();
     return;
   }
 
-  if (!state.audio_master_overridden) {
-    // Mirror Slave's actual settings rather than sending anything -- see
-    // audio_master_overridden's declaration. The user hasn't asked Master to
-    // request a particular format yet, so there's no request to push.
-    // Until Slave's first report, peer_audio_sample_rate is 0: keep the
-    // current valid format so an edit made now builds on something sendable.
-    state.audio_master_desired_send_enabled = info.peer_audio_send_enabled;
-    const audio::AudioFormat reported{info.peer_audio_sample_rate, info.peer_audio_bit_depth};
-    if (reported.is_supported()) state.audio_master_desired_format = reported;
-  } else {
-    // Push Master's desired settings to Slave -- once as soon as the
-    // connection is up, and again on every subsequent change -- regardless
-    // of whether Slave is currently sending, so the request is waiting for
-    // Slave as soon as it looks.
-    const bool want_send_control = !state.audio_master_control_sent ||
-        state.audio_master_desired_send_enabled != state.audio_master_last_sent_enabled ||
-        (state.audio_master_desired_send_enabled &&
-         state.audio_master_desired_format != state.audio_master_last_sent_format);
-    if (want_send_control) {
-      const auto payload = discovery::encode_audio_settings(
-          state.audio_master_desired_send_enabled, state.audio_master_desired_format.sample_rate,
-          state.audio_master_desired_format.bit_depth);
-      state.tcp_server->send_input(discovery::kMsgAudioControl, payload.data(), payload.size());
-      state.audio_master_control_sent = true;
-      state.audio_master_last_sent_enabled = state.audio_master_desired_send_enabled;
-      state.audio_master_last_sent_format = state.audio_master_desired_format;
-    }
+  // Slave owns the audio settings. Master sends a request only when its user
+  // clicks a control; Slave applies it and reports back.
+  if (const auto wanted = state.audio_master_request.take_unsent()) {
+    const auto payload = discovery::encode_audio_settings(
+        wanted->settings.send_enabled, wanted->settings.format.sample_rate, wanted->settings.format.bit_depth, wanted->id);
+    state.tcp_server->send_input(discovery::kMsgAudioControl, payload.data(), payload.size());
   }
 
   // peer_audio_send_enabled defaults to false until Slave reports
@@ -181,13 +158,23 @@ void stop_slave_audio(AppState& state) {
   if (was_active) telemetry::log_event("audio.slave_stopped", "capture stopped");
 }
 
+// Per-connection sync state. A new connection's control sequence numbers
+// and request ids start over, so stale values here would make Slave skip
+// Master's first request or acknowledge one it never applied.
+void reset_slave_sync(AppState& state) {
+  state.audio_status_reported = false;
+  state.audio_last_applied_master_control_seq = 0;
+  state.audio_applied_master_request_id = 0;
+  state.audio_last_reported_request_id = 0;
+}
+
 void pump_slave(AppState& state) {
   if (!state.tcp_client) {
     if (state.audio_active) {
       stop_slave_audio(state);
       state.audio_active = false;
     }
-    state.audio_status_reported = false;
+    reset_slave_sync(state);
     state.audio_slave_start_backoff.reset();
     return;
   }
@@ -200,7 +187,7 @@ void pump_slave(AppState& state) {
       stop_slave_audio(state);
       state.audio_active = false;
     }
-    state.audio_status_reported = false;
+    reset_slave_sync(state);
     state.audio_slave_start_backoff.reset();  // fresh connection, fresh failure episode
     return;
   }
@@ -214,21 +201,26 @@ void pump_slave(AppState& state) {
     const audio::AudioFormat requested{info.master_requested_sample_rate, info.master_requested_bit_depth};
     if (requested.is_supported()) state.audio_desired_format = requested;
     state.audio_last_applied_master_control_seq = info.master_audio_control_seq;
+    state.audio_applied_master_request_id = info.master_audio_request_id;
   }
 
-  // Report the current actual settings to Master whenever they change --
-  // including disabling sending entirely, so Master's UI never gets stuck
-  // showing a stale format after Slave has actually stopped.
+  // Report the current settings to Master whenever either one changes, even
+  // while sending is disabled: Master's UI shows exactly what Slave reports.
+  // Also report after applying a request that changed nothing, so Master
+  // gets its acknowledgement.
   const bool status_changed = !state.audio_status_reported ||
       state.audio_send_enabled != state.audio_last_reported_send_enabled ||
-      (state.audio_send_enabled && state.audio_desired_format != state.audio_last_reported_format);
+      state.audio_desired_format != state.audio_last_reported_format ||
+      state.audio_applied_master_request_id != state.audio_last_reported_request_id;
   if (status_changed) {
-    const auto payload = discovery::encode_audio_settings(
-        state.audio_send_enabled, state.audio_desired_format.sample_rate, state.audio_desired_format.bit_depth);
+    const auto payload =
+        discovery::encode_audio_settings(state.audio_send_enabled, state.audio_desired_format.sample_rate,
+                                         state.audio_desired_format.bit_depth, state.audio_applied_master_request_id);
     state.tcp_client->send_message(discovery::kMsgAudioStatus, payload.data(), payload.size());
     state.audio_status_reported = true;
     state.audio_last_reported_send_enabled = state.audio_send_enabled;
     state.audio_last_reported_format = state.audio_desired_format;
+    state.audio_last_reported_request_id = state.audio_applied_master_request_id;
   }
 
   if (!state.audio_send_enabled || info.peer_audio_port == 0) {

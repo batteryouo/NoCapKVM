@@ -37,13 +37,9 @@ UserSettings load_user_settings() {
       int enabled = 0;
       if (in >> enabled && (enabled == 0 || enabled == 1)) settings.slave_audio_send_enabled = enabled != 0;
       read_format(in, settings.slave_audio_format);
-    } else if (key == "master_audio") {
-      int overridden = 0;
-      int enabled = 0;
-      if (in >> overridden && (overridden == 0 || overridden == 1)) settings.master_audio_overridden = overridden != 0;
-      if (in >> enabled && (enabled == 0 || enabled == 1)) settings.master_audio_send_enabled = enabled != 0;
-      read_format(in, settings.master_audio_format);
     } else {
+      // Unknown keys, including "master_audio" from older versions (Slave
+      // now owns the audio settings), are skipped.
       std::string ignored;
       std::getline(in, ignored);
     }
@@ -60,9 +56,6 @@ void save_user_settings(const UserSettings& settings) {
   out << "auto_connect_enabled " << (settings.auto_connect_enabled ? 1 : 0) << "\n";
   out << "slave_audio " << (settings.slave_audio_send_enabled ? 1 : 0) << " "
       << settings.slave_audio_format.sample_rate << " " << static_cast<unsigned int>(settings.slave_audio_format.bit_depth) << "\n";
-  out << "master_audio " << (settings.master_audio_overridden ? 1 : 0) << " "
-      << (settings.master_audio_send_enabled ? 1 : 0) << " " << settings.master_audio_format.sample_rate << " "
-      << static_cast<unsigned int>(settings.master_audio_format.bit_depth) << "\n";
 }
 
 }  // namespace nockvm::discovery

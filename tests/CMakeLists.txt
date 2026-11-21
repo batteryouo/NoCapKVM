@@ -53,3 +53,10 @@ add_test(NAME test_buffer_depth_window COMMAND test_buffer_depth_window)
 add_executable(test_tcp_session test_tcp_session.cpp)
 target_link_libraries(test_tcp_session PRIVATE nockvm_discovery)
 add_test(NAME test_tcp_session COMMAND test_tcp_session)
+
+# audio_request.h is the same kind of header-only policy class as
+# retry_backoff.h -- see its comment above. It also needs the public include
+# directory for nockvm/audio/format.h.
+add_executable(test_audio_request test_audio_request.cpp)
+target_include_directories(test_audio_request PRIVATE ${CMAKE_SOURCE_DIR}/src/app ${CMAKE_SOURCE_DIR}/include)
+add_test(NAME test_audio_request COMMAND test_audio_request)

@@ -99,9 +99,6 @@ void save_user_settings(const AppState& state) {
   settings.auto_connect_enabled = state.auto_connect_enabled;
   settings.slave_audio_send_enabled = state.audio_send_enabled;
   settings.slave_audio_format = state.audio_desired_format;
-  settings.master_audio_overridden = state.audio_master_overridden;
-  settings.master_audio_send_enabled = state.audio_master_desired_send_enabled;
-  settings.master_audio_format = state.audio_master_desired_format;
   discovery::save_user_settings(settings);
 }
 
@@ -378,52 +375,58 @@ void draw_audio_tab(AppState& state) {
     ImGui::Spacing();
     ImGui::TextUnformatted("(These settings can also be changed from Master's side.)");
   } else {
-    // Master can drive these settings too -- pump_audio() sends whatever is
-    // set here to Slave as a request (kMsgAudioControl) once the user
-    // actually touches one of these controls (audio_master_overridden).
-    // Until then, they just mirror whatever Slave is actually doing (kept in
-    // sync by pump_master()), so opening this tab shows the real current
-    // state rather than Master's untouched default -- the fields below are
-    // the same audio_master_desired_* the radio buttons above are bound to,
-    // this section only decides when clicking one starts being a request.
-    ImGui::TextUnformatted(state.audio_master_overridden ? "Requesting from Slave:" : "Slave's current settings:");
-    bool settings_changed = false;
-    if (ImGui::Checkbox("Send audio", &state.audio_master_desired_send_enabled)) {
-      state.audio_master_overridden = true;
-      settings_changed = true;
+    // Slave owns these settings. The controls show Slave's latest report;
+    // a click becomes a request (sent by pump_master()) and the clicked
+    // value is shown until Slave's report confirms it. See audio_request.h.
+    const discovery::ConnectionInfo info = state.tcp_server ? state.tcp_server->status() : discovery::ConnectionInfo{};
+    const bool connected = info.state == discovery::ConnectionState::Connected;
+    const AudioSettings reported{info.peer_audio_send_enabled,
+                                 audio::AudioFormat{info.peer_audio_sample_rate, info.peer_audio_bit_depth}};
+    // Slave reports once right after connecting; peer_audio_sample_rate is
+    // 0 until then.
+    const bool have_report = connected && reported.format.is_supported();
+    const auto now = std::chrono::steady_clock::now();
+    AudioSettings shown =
+        have_report ? state.audio_master_request.shown(reported, info.peer_audio_applied_request_id, now) : AudioSettings{};
+
+    if (!connected) {
+      ImGui::TextUnformatted("Slave's settings (not connected):");
+    } else if (!have_report) {
+      ImGui::TextUnformatted("Waiting for Slave's settings...");
+    } else {
+      ImGui::TextUnformatted(state.audio_master_request.pending() ? "Waiting for Slave to apply:"
+                                                                  : "Slave's current settings:");
     }
+    ImGui::BeginDisabled(!have_report);
+    bool clicked = ImGui::Checkbox("Send audio", &shown.send_enabled);
     ImGui::Spacing();
 
     ImGui::TextUnformatted("Sample rate:");
-    if (ImGui::RadioButton("48kHz", state.audio_master_desired_format.sample_rate == 48000)) {
-      state.audio_master_desired_format.sample_rate = 48000;
-      state.audio_master_overridden = true;
-      settings_changed = true;
+    if (ImGui::RadioButton("48kHz", shown.format.sample_rate == 48000)) {
+      shown.format.sample_rate = 48000;
+      clicked = true;
     }
     ImGui::SameLine();
-    if (ImGui::RadioButton("24kHz", state.audio_master_desired_format.sample_rate == 24000)) {
-      state.audio_master_desired_format.sample_rate = 24000;
-      state.audio_master_overridden = true;
-      settings_changed = true;
+    if (ImGui::RadioButton("24kHz", shown.format.sample_rate == 24000)) {
+      shown.format.sample_rate = 24000;
+      clicked = true;
     }
 
     ImGui::TextUnformatted("Bit depth:");
-    if (ImGui::RadioButton("16-bit", state.audio_master_desired_format.bit_depth == 16)) {
-      state.audio_master_desired_format.bit_depth = 16;
-      state.audio_master_overridden = true;
-      settings_changed = true;
+    if (ImGui::RadioButton("16-bit", shown.format.bit_depth == 16)) {
+      shown.format.bit_depth = 16;
+      clicked = true;
     }
     ImGui::SameLine();
-    if (ImGui::RadioButton("8-bit", state.audio_master_desired_format.bit_depth == 8)) {
-      state.audio_master_desired_format.bit_depth = 8;
-      state.audio_master_overridden = true;
-      settings_changed = true;
+    if (ImGui::RadioButton("8-bit", shown.format.bit_depth == 8)) {
+      shown.format.bit_depth = 8;
+      clicked = true;
     }
-    if (settings_changed) save_user_settings(state);
+    ImGui::EndDisabled();
+    if (clicked && have_report) state.audio_master_request.request(shown, now);
 
     ImGui::Spacing();
-    if (state.tcp_server && state.tcp_server->status().state == discovery::ConnectionState::Connected) {
-      const discovery::ConnectionInfo info = state.tcp_server->status();
+    if (connected) {
       if (info.peer_audio_send_enabled) {
         ImGui::Text("Slave is sending: %u Hz, %u-bit", info.peer_audio_sample_rate, info.peer_audio_bit_depth);
       } else {

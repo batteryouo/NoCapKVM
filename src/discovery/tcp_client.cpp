@@ -276,11 +276,13 @@ TcpClient::AttemptOutcome TcpClient::run_once() {
         bool send_enabled;
         uint32_t sample_rate;
         uint8_t bit_depth;
-        if (decode_audio_settings(payload.data(), payload.size(), send_enabled, sample_rate, bit_depth)) {
+        uint32_t request_id;
+        if (decode_audio_settings(payload.data(), payload.size(), send_enabled, sample_rate, bit_depth, request_id)) {
           std::lock_guard<std::mutex> lock(status_mutex_);
           status_.master_requested_send_enabled = send_enabled;
           status_.master_requested_sample_rate = sample_rate;
           status_.master_requested_bit_depth = bit_depth;
+          status_.master_audio_request_id = request_id;
           status_.master_audio_control_received = true;
           status_.master_audio_control_seq++;
         }

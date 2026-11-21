@@ -18,11 +18,17 @@
 #include "nockvm/display/monitor_info.h"
 #include "nockvm/topology/arrangement.h"
 #include "audio_loss_window.h"
+#include "audio_request.h"
 #include "buffer_depth_window.h"
 #include "input_service.h"
 #include "retry_backoff.h"
 
 namespace nockvm::app {
+
+// How long the Master audio UI holds a clicked value while waiting for
+// Slave to confirm it. Slave applies a request within one loop iteration
+// (about 16ms), so this only matters when Slave ignores or overrides it.
+constexpr auto kAudioRequestTimeout = std::chrono::seconds(2);
 
 enum class Screen { RoleSelect, Discovery, ManageDevices, Arrangement };
 
@@ -87,17 +93,14 @@ struct AppState {
   bool audio_send_enabled = true;
   audio::AudioFormat audio_desired_format;
 
-  // Master-side requested capture settings.
-  bool audio_master_desired_send_enabled = true;
-  audio::AudioFormat audio_master_desired_format;
-  // False while Master mirrors the settings reported by Slave.
-  bool audio_master_overridden = false;
-  bool audio_master_control_sent = false;  // at least one kMsgAudioControl sent this connection
-  bool audio_master_last_sent_enabled = true;
-  audio::AudioFormat audio_master_last_sent_format;
+  // Master-side: a UI click on Slave's audio settings, held until Slave's
+  // report confirms it. See audio_request.h.
+  AudioRequest audio_master_request{kAudioRequestTimeout};
 
   // Slave-side message and status synchronization state.
   uint32_t audio_last_applied_master_control_seq = 0;
+  uint32_t audio_applied_master_request_id = 0;  // Master's id for the request last applied
+  uint32_t audio_last_reported_request_id = 0;
   bool audio_status_reported = false;  // at least one kMsgAudioStatus sent this connection
   bool audio_last_reported_send_enabled = true;
   audio::AudioFormat audio_last_reported_format;

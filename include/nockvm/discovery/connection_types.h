@@ -30,6 +30,7 @@ struct ConnectionInfo {
   bool peer_audio_send_enabled = false;
   uint32_t peer_audio_sample_rate = 0;
   uint8_t peer_audio_bit_depth = 16;
+  uint32_t peer_audio_applied_request_id = 0;  // last Master request id Slave's report reflects
 
   // Slave-side only: Master's latest requested audio settings, reported
   // via kMsgAudioControl. master_audio_control_seq increments on every
@@ -40,6 +41,7 @@ struct ConnectionInfo {
   bool master_requested_send_enabled = true;
   uint32_t master_requested_sample_rate = 48000;
   uint8_t master_requested_bit_depth = 16;
+  uint32_t master_audio_request_id = 0;  // Master's id for the latest request
   uint32_t master_audio_control_seq = 0;
 
   // Slave-side only: set when kMsgGoAway is seen on this connection attempt
