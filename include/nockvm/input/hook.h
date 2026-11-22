@@ -17,10 +17,15 @@ struct KeyEvent {
   bool extended;
 };
 
+struct WheelEvent {
+  int16_t delta;    // WHEEL_DELTA (120) per notch; positive is up / right
+  bool horizontal;  // WM_MOUSEHWHEEL rather than WM_MOUSEWHEEL
+};
+
 struct InputFrame {
   int32_t dx = 0, dy = 0;  // accumulated raw mouse delta since the last poll()
   std::vector<MouseButtonEvent> buttons;
-  std::vector<int16_t> wheel_deltas;
+  std::vector<WheelEvent> wheels;  // in arrival order, both axes
   std::vector<KeyEvent> keys;
 };
 

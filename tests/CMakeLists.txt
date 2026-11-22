@@ -60,3 +60,9 @@ add_test(NAME test_tcp_session COMMAND test_tcp_session)
 add_executable(test_audio_request test_audio_request.cpp)
 target_include_directories(test_audio_request PRIVATE ${CMAKE_SOURCE_DIR}/src/app ${CMAKE_SOURCE_DIR}/include)
 add_test(NAME test_audio_request COMMAND test_audio_request)
+
+# evdev_map.h lives in src/input (internal to nockvm_input).
+add_executable(test_input test_input.cpp)
+target_link_libraries(test_input PRIVATE nockvm_input)
+target_include_directories(test_input PRIVATE ${CMAKE_SOURCE_DIR}/src/input)
+add_test(NAME test_input COMMAND test_input)

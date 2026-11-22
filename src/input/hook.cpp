@@ -113,8 +113,8 @@ LRESULT CALLBACK mouse_proc(int code, WPARAM wparam, LPARAM lparam) {
     return CallNextHookEx(nullptr, code, wparam, lparam);
   }
 
-  if (wparam == WM_MOUSEWHEEL) {
-    self->pending_.wheel_deltas.push_back(static_cast<int16_t>(HIWORD(info->mouseData)));
+  if (wparam == WM_MOUSEWHEEL || wparam == WM_MOUSEHWHEEL) {
+    self->pending_.wheels.push_back({static_cast<int16_t>(HIWORD(info->mouseData)), wparam == WM_MOUSEHWHEEL});
     return suppress ? 1 : CallNextHookEx(nullptr, code, wparam, lparam);
   }
 

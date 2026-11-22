@@ -42,13 +42,20 @@ void inject_mouse_button(uint8_t button, bool down) {
   send(input);
 }
 
-void inject_mouse_wheel(int16_t delta) {
+namespace {
+
+void send_wheel(DWORD flag, int16_t delta) {
   INPUT input{};
   input.type = INPUT_MOUSE;
-  input.mi.dwFlags = MOUSEEVENTF_WHEEL;
+  input.mi.dwFlags = flag;
   input.mi.mouseData = static_cast<DWORD>(static_cast<int32_t>(delta));
   send(input);
 }
+
+}  // namespace
+
+void inject_mouse_wheel(int16_t delta) { send_wheel(MOUSEEVENTF_WHEEL, delta); }
+void inject_mouse_hwheel(int16_t delta) { send_wheel(MOUSEEVENTF_HWHEEL, delta); }
 
 void inject_key(uint32_t vk, uint32_t scancode, bool down, bool extended) {
   INPUT input{};
@@ -96,7 +103,35 @@ void configure_pointer_bounds(int32_t, int32_t, int32_t, int32_t) {}
 #include <libevdev/libevdev-uinput.h>
 #include <libevdev/libevdev.h>
 
+#include "evdev_map.h"
+
 namespace nockvm::input {
+
+// evdev_map.h spells the codes as numbers so it builds everywhere; check
+// them against the real header here.
+static_assert(evdev::kKeyKpEnter == KEY_KPENTER && evdev::kKeyRightCtrl == KEY_RIGHTCTRL);
+static_assert(evdev::kKeyKpSlash == KEY_KPSLASH && evdev::kKeySysRq == KEY_SYSRQ);
+static_assert(evdev::kKeyRightAlt == KEY_RIGHTALT && evdev::kKeyHome == KEY_HOME);
+static_assert(evdev::kKeyUp == KEY_UP && evdev::kKeyPageUp == KEY_PAGEUP && evdev::kKeyLeft == KEY_LEFT);
+static_assert(evdev::kKeyRight == KEY_RIGHT && evdev::kKeyEnd == KEY_END && evdev::kKeyDown == KEY_DOWN);
+static_assert(evdev::kKeyPageDown == KEY_PAGEDOWN && evdev::kKeyInsert == KEY_INSERT);
+static_assert(evdev::kKeyDelete == KEY_DELETE && evdev::kKeyMute == KEY_MUTE);
+static_assert(evdev::kKeyVolumeDown == KEY_VOLUMEDOWN && evdev::kKeyVolumeUp == KEY_VOLUMEUP);
+static_assert(evdev::kKeyKpEqual == KEY_KPEQUAL && evdev::kKeyPause == KEY_PAUSE);
+static_assert(evdev::kKeyKpComma == KEY_KPCOMMA && evdev::kKeyLeftMeta == KEY_LEFTMETA);
+static_assert(evdev::kKeyRightMeta == KEY_RIGHTMETA && evdev::kKeyCompose == KEY_COMPOSE);
+static_assert(evdev::kKeyStop == KEY_STOP && evdev::kKeyCalc == KEY_CALC && evdev::kKeyMail == KEY_MAIL);
+static_assert(evdev::kKeyBookmarks == KEY_BOOKMARKS && evdev::kKeyComputer == KEY_COMPUTER);
+static_assert(evdev::kKeyBack == KEY_BACK && evdev::kKeyForward == KEY_FORWARD);
+static_assert(evdev::kKeyNextSong == KEY_NEXTSONG && evdev::kKeyPlayPause == KEY_PLAYPAUSE);
+static_assert(evdev::kKeyPreviousSong == KEY_PREVIOUSSONG && evdev::kKeyStopCd == KEY_STOPCD);
+static_assert(evdev::kKeyHomepage == KEY_HOMEPAGE && evdev::kKeyRefresh == KEY_REFRESH);
+static_assert(evdev::kKeyF13 == KEY_F13 && evdev::kKeyF13 + 11 == KEY_F24);
+static_assert(evdev::kKeySearch == KEY_SEARCH && evdev::kKeyMedia == KEY_MEDIA);
+static_assert(evdev::kKeyNumLock == KEY_NUMLOCK && evdev::kKeyRo == KEY_RO);
+static_assert(evdev::kKeyHenkan == KEY_HENKAN && evdev::kKeyKatakanaHiragana == KEY_KATAKANAHIRAGANA);
+static_assert(evdev::kKeyMuhenkan == KEY_MUHENKAN && evdev::kKeyYen == KEY_YEN);
+
 namespace {
 
 int32_t g_bounds_min_x = 0, g_bounds_max_x = 65535, g_bounds_min_y = 0, g_bounds_max_y = 65535;
@@ -154,6 +189,13 @@ libevdev_uinput* ensure_mouse_dev() {
 
     libevdev_enable_event_type(d, EV_REL);
     libevdev_enable_event_code(d, EV_REL, REL_WHEEL, nullptr);
+    libevdev_enable_event_code(d, EV_REL, REL_HWHEEL, nullptr);
+#ifdef REL_WHEEL_HI_RES
+    // libinput uses these when present, which keeps touchpad and
+    // high-resolution scrolling from Master smooth.
+    libevdev_enable_event_code(d, EV_REL, REL_WHEEL_HI_RES, nullptr);
+    libevdev_enable_event_code(d, EV_REL, REL_HWHEEL_HI_RES, nullptr);
+#endif
 
     libevdev_enable_event_type(d, EV_ABS);
     const input_absinfo abs_x{0, g_bounds_min_x, g_bounds_max_x, 0, 0, 0};
@@ -162,35 +204,6 @@ libevdev_uinput* ensure_mouse_dev() {
     libevdev_enable_event_code(d, EV_ABS, ABS_Y, &abs_y);
   });
   return dev;
-}
-
-// Windows scancodes and Linux evdev keycodes both derive from the legacy
-// PC/XT "Set 1" scancode table, and Linux keycodes 0-88 are defined to
-// equal those scancodes directly -- so the base region needs no table.
-// Extended (E0-prefixed) keys got distinct, non-formulaic keycode numbers
-// on the Linux side and need an explicit lookup; anything not listed here
-// is silently dropped rather than mapped to something wrong.
-int translate_extended_scancode(uint32_t scancode) {
-  switch (scancode) {
-    case 0x1C: return KEY_KPENTER;
-    case 0x1D: return KEY_RIGHTCTRL;
-    case 0x35: return KEY_KPSLASH;
-    case 0x38: return KEY_RIGHTALT;
-    case 0x47: return KEY_HOME;
-    case 0x48: return KEY_UP;
-    case 0x49: return KEY_PAGEUP;
-    case 0x4B: return KEY_LEFT;
-    case 0x4D: return KEY_RIGHT;
-    case 0x4F: return KEY_END;
-    case 0x50: return KEY_DOWN;
-    case 0x51: return KEY_PAGEDOWN;
-    case 0x52: return KEY_INSERT;
-    case 0x53: return KEY_DELETE;
-    case 0x5B: return KEY_LEFTMETA;
-    case 0x5C: return KEY_RIGHTMETA;
-    case 0x5D: return KEY_COMPOSE;
-    default: return -1;
-  }
 }
 
 int modifier_bit(int code) {
@@ -231,16 +244,38 @@ void inject_mouse_button(uint8_t button, bool down) {
   sync_report(dev);
 }
 
-void inject_mouse_wheel(int16_t delta) {
+namespace {
+
+WheelAccumulator g_wheel, g_hwheel;  // only touched from the Slave's receive thread
+
+// Sends the high-resolution value (also 120 per notch, so it passes through
+// unchanged) plus whole notches for readers of plain REL_WHEEL / REL_HWHEEL,
+// the same pair a real high-resolution mouse reports. hi_res_code < 0 means
+// the kernel headers predate high-resolution scrolling.
+void emit_wheel(WheelAccumulator& acc, uint16_t notch_code, int hi_res_code, int16_t delta) {
   auto* dev = ensure_mouse_dev();
-  emit(dev, EV_REL, REL_WHEEL, delta / 120);  // Windows' WHEEL_DELTA=120 units -> Linux's one-notch-per-unit
+  if (hi_res_code >= 0) emit(dev, EV_REL, static_cast<uint16_t>(hi_res_code), delta);
+  const int notches = acc.add(delta);
+  if (notches != 0) emit(dev, EV_REL, notch_code, notches);
   sync_report(dev);
 }
 
-void inject_key(uint32_t /*vk*/, uint32_t scancode, bool down, bool extended) {
+#ifdef REL_WHEEL_HI_RES
+constexpr int kWheelHiRes = REL_WHEEL_HI_RES;
+constexpr int kHWheelHiRes = REL_HWHEEL_HI_RES;
+#else
+constexpr int kWheelHiRes = -1;
+constexpr int kHWheelHiRes = -1;
+#endif
+
+}  // namespace
+
+void inject_mouse_wheel(int16_t delta) { emit_wheel(g_wheel, REL_WHEEL, kWheelHiRes, delta); }
+void inject_mouse_hwheel(int16_t delta) { emit_wheel(g_hwheel, REL_HWHEEL, kHWheelHiRes, delta); }
+
+void inject_key(uint32_t vk, uint32_t scancode, bool down, bool extended) {
   auto* dev = ensure_keyboard_dev();
-  const int code = extended ? translate_extended_scancode(scancode)
-                             : (scancode >= 1 && scancode <= 88 ? static_cast<int>(scancode) : -1);
+  const int code = evdev_keycode(vk, scancode, extended);
   if (code < 0) return;
 
   emit(dev, EV_KEY, code, down ? 1 : 0);

@@ -197,9 +197,10 @@ void handle_slave_owned(InputSession& s, const discovery::ConnectionInfo& info, 
     const auto payload = input::encode_mouse_button(b.button, b.down);
     s.server.send_input(input::kMsgMouseButton, payload.data(), payload.size());
   }
-  for (const int16_t delta : frame.wheel_deltas) {
-    const auto payload = input::encode_mouse_wheel(delta);
-    s.server.send_input(input::kMsgMouseWheel, payload.data(), payload.size());
+  for (const auto& w : frame.wheels) {
+    const auto payload = input::encode_mouse_wheel(w.delta);
+    s.server.send_input(w.horizontal ? input::kMsgMouseHWheel : input::kMsgMouseWheel, payload.data(),
+                        payload.size());
   }
   for (const auto& k : frame.keys) {
     const auto payload = input::encode_key(k.vk, k.scancode, k.down, k.extended);

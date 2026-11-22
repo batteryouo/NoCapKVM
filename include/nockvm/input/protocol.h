@@ -8,9 +8,13 @@ namespace nockvm::input {
 // continuing the numbering after discovery::kMsgMonitorList (= 1).
 constexpr uint8_t kMsgMouseAbsolute = 2;  // int32 x, int32 y — warp + continuous streaming, same message
 constexpr uint8_t kMsgMouseButton = 3;   // uint8 button, uint8 down
-constexpr uint8_t kMsgMouseWheel = 4;    // int16 delta
+constexpr uint8_t kMsgMouseWheel = 4;    // int16 delta, vertical; positive is up
 constexpr uint8_t kMsgKey = 5;           // uint32 vk, uint32 scancode, uint8 down, uint8 extended
 constexpr uint8_t kMsgModifierSync = 6;  // uint8 mask
+// int16 delta, horizontal; positive is right. Same payload as
+// kMsgMouseWheel (encode_mouse_wheel). A separate type rather than an axis
+// field so an older Slave ignores it instead of scrolling vertically.
+constexpr uint8_t kMsgMouseHWheel = 16;
 
 std::vector<uint8_t> encode_mouse_absolute(int32_t x, int32_t y);
 bool decode_mouse_absolute(const uint8_t* data, size_t len, int32_t& x, int32_t& y);

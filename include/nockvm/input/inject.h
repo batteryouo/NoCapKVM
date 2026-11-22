@@ -10,7 +10,10 @@ namespace nockvm::input {
 // desktop coordinate space (the same space MonitorInfo uses).
 void inject_mouse_absolute(int32_t x, int32_t y);
 void inject_mouse_button(uint8_t button, bool down);
+// Wheel deltas are in Windows units: 120 (WHEEL_DELTA) per notch, smaller
+// steps from high-resolution wheels and touchpads. Positive is up / right.
 void inject_mouse_wheel(int16_t delta);
+void inject_mouse_hwheel(int16_t delta);
 void inject_key(uint32_t vk, uint32_t scancode, bool down, bool extended);
 
 // Forces each of Shift/Ctrl/Alt/Meta to the held (1) or released (0) state

@@ -55,6 +55,11 @@ void dispatch_input_message(uint8_t msg_type, const std::vector<uint8_t>& payloa
       if (decode_mouse_wheel(payload.data(), payload.size(), delta)) inject_mouse_wheel(delta);
       break;
     }
+    case kMsgMouseHWheel: {
+      int16_t delta;
+      if (decode_mouse_wheel(payload.data(), payload.size(), delta)) inject_mouse_hwheel(delta);
+      break;
+    }
     case kMsgKey: {
       uint32_t vk, scancode;
       bool down, extended;
